@@ -32,10 +32,7 @@ class Trainer(L.LightningModule):
         self.validation_step_outputs_preds.append(logits.squeeze(1))
         self.validation_step_outputs_gts.append(y)
 
-
     def on_validation_epoch_end(self):
-        if not self.validation_step_outputs_preds: # Avoid errors if validation is skipped
-            return
         all_preds = torch.cat(self.validation_step_outputs_preds, 0).to(
                 torch.float32).sigmoid().flatten().cpu().numpy()
         all_gts = torch.cat(self.validation_step_outputs_gts, 0).to(torch.float32).cpu().numpy()
@@ -46,7 +43,6 @@ class Trainer(L.LightningModule):
         self.log('val_facc_epoch', f_acc, logger=True, sync_dist=True)
         self.validation_step_outputs_preds.clear()
         self.validation_step_outputs_gts.clear()
-
 
     def configure_optimizers(self):
         optparams = filter(lambda p: p.requires_grad, self.parameters())

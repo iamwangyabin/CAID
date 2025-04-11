@@ -10,8 +10,8 @@ model:
 train:
   pipeline: engine.base_trainer
   factor: 0.2
-  gpu_ids: [0]
-  train_epochs: 1 
+  gpu_ids: [0, 1]
+  train_epochs: 10 
   check_val_every_n_epoch: 1 
   seed: 1995
   optimizer:
@@ -46,14 +46,14 @@ datasets:
           data_root: '${datasets.base_path}/ForenSynths',
           sub_sets: [ "cat" ],
           split: 'train_binary' }
-    split_ratio: 0.9
+    split_ratio: 0.95
     batch_size: 128
     loader_workers: 32
     trsf:
       - _target_: data.DataAugment
-        blur_prob: 0.5
+        blur_prob: 0.1
         blur_sig: [ 0.0, 3.0 ]
-        jpg_prob: 0.5
+        jpg_prob: 0.1
         jpg_method: [ 'cv2', 'pil' ]
         jpg_qual: [ 30, 100 ]
       - _target_: torchvision.transforms.RandomCrop
@@ -67,17 +67,17 @@ datasets:
 
   test:
     source:
-      - { target: data.ArrowDatasets,
-          data_root: '${datasets.base_path}/DIF',
-          sub_sets: [ 'dalle_2', ],
-          split: 'test',
-          benchmark_name: 'DIF' }
-
-      - { target: data.ArrowDatasets,
-        data_root: '${datasets.base_path}/GANGen-Detection',
-        sub_sets: [ "AttGAN", ],
+    - { target: data.ArrowDatasets,
+        data_root: '${datasets.base_path}/ForenSynths',
+        sub_sets: [ "biggan", "deepfake", "gaugan", "progan"  ],
         split: 'test',
-        benchmark_name: 'GANGen-Detection' }
+        benchmark_name: 'ForenSynths'}
+
+    - { target: data.ArrowDatasets,
+        data_root: '${datasets.base_path}/synthwildx',
+        sub_sets: ['dalle3', 'firefly', 'midjourney_v5'],
+        split: 'test',
+        benchmark_name: 'Synthwildx' }
 
     batch_size: 128
     loader_workers: 32

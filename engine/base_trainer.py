@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import wandb
 import lightning as L
 import numpy as np
 
@@ -13,18 +14,17 @@ class Trainer(L.LightningModule):
         self.opt = opt
         self.model = get_model(opt)
         self.validation_step_outputs_gts, self.validation_step_outputs_preds = [], []
-        # Add storage for test outputs (using a dictionary to handle multiple test dataloaders)
         self.test_step_outputs = {}
         self.criterion = nn.BCEWithLogitsLoss()
+        self.cumulative_step = 0 
 
 
     def training_step(self, batch):
         x, y = batch
         logits = self.model(x)['logits']
         loss = self.criterion(logits.squeeze(1), (y % 2).to(self.dtype))
-        self.log("train_loss", loss)
+        wandb.log({"train_loss": loss}, step=self.trainer.global_step + self.cumulative_step)
         return loss
-
 
     def validation_step(self, batch):
         x, y = batch
@@ -37,10 +37,14 @@ class Trainer(L.LightningModule):
                 torch.float32).sigmoid().flatten().cpu().numpy()
         all_gts = torch.cat(self.validation_step_outputs_gts, 0).to(torch.float32).cpu().numpy()
         acc, ap, r_acc, f_acc = validate(all_gts % 2, all_preds)
-        self.log('val_acc_epoch', acc, logger=True, sync_dist=True)
-        self.log('val_ap_epoch', ap, logger=True, sync_dist=True)
-        self.log('val_racc_epoch', r_acc, logger=True, sync_dist=True)
-        self.log('val_facc_epoch', f_acc, logger=True, sync_dist=True)
+        current_step = self.trainer.global_step + self.cumulative_step
+        wandb.log({
+            'val_acc_epoch': acc,
+            'val_ap_epoch': ap,
+            'val_racc_epoch': r_acc,
+            'val_facc_epoch': f_acc
+        }, step=current_step)
+        self.log('val_ap_epoch', ap, logger=False, sync_dist=True)
         self.validation_step_outputs_preds.clear()
         self.validation_step_outputs_gts.clear()
 

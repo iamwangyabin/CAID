@@ -8,7 +8,7 @@ import copy
 import torch
 import torch.nn
 import lightning as L
-from lightning.pytorch.loggers import WandbLogger
+# from lightning.pytorch.loggers import WandbLogger # Remove WandbLogger import
 from lightning.pytorch.callbacks import ModelCheckpoint
 
 import engine
@@ -16,6 +16,7 @@ import data
 import networks
 from utils.common import load_config_with_cli, archive_files, seed_everything
 from utils.dataloader import build_train_val_dataloader, build_test_dataloader
+# Remove StepOffsetCallback import
 
 def run_incremental_training():
     parser = argparse.ArgumentParser(description='Incremental Training')
@@ -33,8 +34,8 @@ def run_incremental_training():
     base_log_dir = os.path.join('logs', today_str)
     os.makedirs(base_log_dir, exist_ok=True)
 
-    wandb_logger = WandbLogger(name=today_str, project='ContinualAIDetect',
-                               job_type='train', group=conf.name, save_dir=base_log_dir)
+    wandb.init(name=today_str, project='ContinualAIDetect',
+               job_type='train', group=conf.name, dir=base_log_dir)
 
     if os.getenv("LOCAL_RANK", '0') == '0':
         archive_files(today_str, exclude_dirs=['logs', 'wandb', '.git', 'exp_results', '__pycache__'])
@@ -52,6 +53,7 @@ def run_incremental_training():
 
     last_stage_checkpoint = None
     model = None
+    cumulative_step = 0
     for i, dataset_conf in enumerate(conf.datasets.train.source):
         step_log_dir = os.path.join(base_log_dir, f"step_{i+1}")
         os.makedirs(step_log_dir, exist_ok=True)
@@ -63,9 +65,14 @@ def run_incremental_training():
         )
 
         if last_stage_checkpoint is None:
-            model = hydra.utils.get_class(conf.train.pipeline)(opt=conf) 
+            model = hydra.utils.get_class(conf.train.pipeline)(opt=conf)
+            model.cumulative_step = cumulative_step 
         else:
-            model = hydra.utils.get_class(conf.train.pipeline).load_from_checkpoint(last_stage_checkpoint, opt=conf) 
+            model = hydra.utils.get_class(conf.train.pipeline).load_from_checkpoint(
+                last_stage_checkpoint,
+                opt=conf
+            )
+            model.cumulative_step = cumulative_step # Set after loading from checkpoint
 
         stage_checkpoint_callback = ModelCheckpoint(
             monitor='val_ap_epoch',
@@ -78,14 +85,12 @@ def run_incremental_training():
         )
 
         trainer = L.Trainer(
-            logger=wandb_logger,
             max_epochs=conf.train.train_epochs,
             accelerator="gpu",
             devices=[int(x) for x in conf.train.gpu_ids],
             callbacks=[stage_checkpoint_callback],
-            check_val_every_n_epoch=conf.train.check_val_every_n_epoch,  
-            precision="16",
-            log_every_n_steps=10,
+            check_val_every_n_epoch=conf.train.check_val_every_n_epoch,
+            precision="16-mixed", # Use recommended precision
         )
 
         trainer.fit(model=model, train_dataloaders=stage_train_loader, val_dataloaders=stage_val_loader)
@@ -94,9 +99,11 @@ def run_incremental_training():
         trainer.test(model=model, dataloaders=list(test_loaders_dict.values()))
         test_results = model.test_results
         test_results = {f"{id_to_benchmark[k.split('/')[0]]}/{k.split('/', 1)[1]}": v for k, v in test_results.items()}
-        wandb_logger.log_metrics(test_results, step=i)
-      
+        session_final_step = cumulative_step + trainer.global_step
+        wandb.log(test_results, step=session_final_step)
+
         last_stage_checkpoint = stage_checkpoint_callback.best_model_path
+        cumulative_step += trainer.global_step
 
 
 

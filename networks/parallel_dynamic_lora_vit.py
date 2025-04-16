@@ -414,6 +414,38 @@ class ParallelDynamicLoRA_ViT_timm(VisionTransformer):
         if self.head_dist is not None:
              for param in self.head_dist.parameters(): param.requires_grad = False
 
+        # Explicitly freeze other base components
+        for param in self.patch_embed.parameters():
+            param.requires_grad = False
+        if self.pos_embed is not None:
+            self.pos_embed.requires_grad = False # pos_embed might be None
+        if self.cls_token is not None:
+            self.cls_token.requires_grad = False # cls_token might be None
+        # The final norm layer before the head
+        if hasattr(self, 'norm') and self.norm is not None:
+            for param in self.norm.parameters():
+                param.requires_grad = False
+
+            # Explicitly freeze other base components
+            for param in self.patch_embed.parameters():
+                param.requires_grad = False
+            if self.pos_embed is not None:
+                self.pos_embed.requires_grad = False # pos_embed might be None
+            if self.cls_token is not None:
+                self.cls_token.requires_grad = False # cls_token might be None
+            # The final norm layer before the head
+            if hasattr(self, 'norm') and self.norm is not None:
+                for param in self.norm.parameters():
+                    param.requires_grad = False
+
+            # Explicitly freeze other base components
+            for param in self.patch_embed.parameters(): param.requires_grad = False
+            if self.pos_embed is not None: self.pos_embed.requires_grad = False # pos_embed might be None
+            if self.cls_token is not None: self.cls_token.requires_grad = False # cls_token might be None
+            # The final norm layer before the head
+            if hasattr(self, 'norm') and self.norm is not None:
+                for param in self.norm.parameters(): param.requires_grad = False
+
     # --- Stage and Rank Control Methods ---
     def start_new_stage(self, stage_index, initial_active_rank=1):
         """ Initializes a new learning stage across all blocks and LoRA adapters. """
@@ -558,63 +590,38 @@ class ParallelDynamicLoRA_ViT_timm(VisionTransformer):
         # 1. Base path logits (using the main head)
         base_logits = self.head(x_base_norm[:, 0]) # Use index 0 for CLS token
 
-        # 2. LoRA path logits (using the dedicated classifiers)
-        lora_path_logits = []
-        # Only calculate logits for LoRA paths up to the current active stage
-        # to simulate incremental learning prediction.
-        if self.current_stage >= 0 and list_of_lora_cls_token_tensors:
-            # Iterate only up to the current stage (inclusive)
-            num_active_paths = self.current_stage + 1
-            if len(self.lora_path_classifiers) >= num_active_paths and len(list_of_lora_cls_token_tensors) >= num_active_paths:
-                for i in range(num_active_paths):
-                    # Pass the i-th LoRA path's CLS token sequence to the i-th classifier
+        # 2. LoRA path logits (using the dedicated classifiers) and aggregate them
+        lora_path_logits_list = []
+        aggregated_lora_logit = None
+        # Only calculate and aggregate logits for LoRA paths up to the current active stage
+        # Always try to aggregate across all defined LoRA paths if features are available
+        if self.num_loras > 0 and list_of_lora_cls_token_tensors:
+            # Ensure we have classifiers and features for the existing LoRA paths
+            num_paths_to_aggregate = min(self.num_loras, len(self.lora_path_classifiers), len(list_of_lora_cls_token_tensors))
+            if num_paths_to_aggregate > 0:
+                for i in range(num_paths_to_aggregate):
                     path_logits = self.lora_path_classifiers[i](list_of_lora_cls_token_tensors[i])
-                    lora_path_logits.append(path_logits)
-            else:
-                 # This might happen if current_stage is somehow larger than num_loras - 1
-                 # or if cls tokens weren't collected properly.
-                 print(f"Warning: Cannot compute LoRA logits. current_stage={self.current_stage}, "
-                       f"num_classifiers={len(self.lora_path_classifiers)}, "
-                       f"num_cls_token_tensors={len(list_of_lora_cls_token_tensors)}")
+                    lora_path_logits_list.append(path_logits)
 
+                # Aggregate the logits if any were calculated
+                if lora_path_logits_list:
+                    # Stack logits: List[Tensor(B, 1)] -> Tensor(num_paths_to_aggregate, B, 1)
+                    stacked_logits = torch.stack(lora_path_logits_list, dim=0)
+                    # Average along the path dimension: Tensor(num_paths_to_aggregate, B, 1) -> Tensor(B, 1)
+                    aggregated_lora_logit = torch.mean(stacked_logits, dim=0)
+
+            # Removed the warning based on current_stage as we now aggregate based on num_loras
+            # else:
+            #      print(f"Warning: Cannot compute LoRA logits. num_loras={self.num_loras}, "
+            #            f"num_classifiers={len(self.lora_path_classifiers)}, num_cls_token_tensors={len(list_of_lora_cls_token_tensors)}")
 
         return {
             'base_logits': base_logits,
-            'lora_path_logits': lora_path_logits # List of logits, one per LoRA path
+            'aggregated_lora_logit': aggregated_lora_logit # Single aggregated logit (or None)
         }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# --- Creator Function ---
-# 创建带有并行、动态秩LoRA块的ViT模型的工厂函数。
 def create_parallel_dynamic_lora_vit(
         model_name='vit_base_patch16_224', pretrained=True, num_classes=1000,
         num_loras=1, max_rank_potential=8, num_stages=1, rank_dropout_p=0.0, freeze_base=True, **kwargs):

@@ -79,8 +79,22 @@ class IncrementalLoRATrainer(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch # Adapt based on your data format
         outputs = self(x)
-        logits = outputs['logits'] # Get logits from model output dict
-        # lora_features = outputs['lora_features'] # Available if needed
+        logits = outputs.get('aggregated_lora_logit') # Use .get() for safety
+        # lora_features = outputs.get('lora_features') # Also use .get() if needed
+
+        if logits is None:
+            # Logits might be None if no LoRA paths are active or configured
+            # Handle this case: maybe return None, or calculate loss based on base_logits?
+            # For now, let's log a warning and return None to skip the step.
+            print(f"Warning: 'aggregated_lora_logit' not found or is None in training_step for stage {self.current_stage_index}. Skipping batch.")
+            # Optionally log base_logits loss if available and desired:
+            # base_logits = outputs.get('base_logits')
+            # if base_logits is not None:
+            #     loss = self.criterion(base_logits.squeeze(1), (y % 2).to(base_logits.dtype))
+            #     self.log('train_base_loss', loss, on_step=True, on_epoch=True, logger=True)
+            # else:
+            #     print("Warning: Both aggregated_lora_logit and base_logits are None.")
+            return None # Skip optimizer step for this batch
 
         # Ensure target dtype matches logits dtype
         loss = self.criterion(logits.squeeze(1), (y % 2).to(logits.dtype))
@@ -95,7 +109,21 @@ class IncrementalLoRATrainer(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         outputs = self(x)
-        logits = outputs['logits'] # Get logits from model output dict
+        logits = outputs.get('aggregated_lora_logit') # Use .get() for safety
+
+        if logits is None:
+            # Logits might be None if no LoRA paths are active or configured
+            # Handle this case: maybe append base_logits or a default value?
+            # For now, let's log a warning and skip appending for this batch.
+            print(f"Warning: 'aggregated_lora_logit' not found or is None in validation_step for stage {self.current_stage_index}. Skipping batch.")
+            # Optionally append base_logits if available and desired:
+            # base_logits = outputs.get('base_logits')
+            # if base_logits is not None:
+            #     self.validation_step_outputs_preds.append(base_logits.squeeze(1))
+            # else:
+            #     print("Warning: Both aggregated_lora_logit and base_logits are None in validation.")
+            return # Skip appending preds/gts for this batch
+
         self.validation_step_outputs_preds.append(logits.squeeze(1))
         self.validation_step_outputs_gts.append(y)
 

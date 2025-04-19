@@ -6,153 +6,72 @@ from functools import partial
 from typing import List, Dict, Tuple, Optional
 
 from .lora_block import ParallelDynamicLoRABlock
-from .lora_classifier import LoRAPathAvgPoolClassifier
-from utils.registry import MODELS 
-
+from .lora_classifier import LoRAPathClassifier
+from utils.registry import MODELS
 
 @MODELS.register_module()
 class LoRADetector(nn.Module):
     def __init__(self,
                  backbone_name='vit_base_patch16_224',
                  backbone_pretrained=True,
-                 backbone_num_classes=0,
-                 num_loras=1,
+                 num_stages=5,
                  max_rank_potential=8,
-                 num_stages=1,
                  rank_dropout_p=0.0,
-                 freeze_backbone_base=True,
-                 lora_classifier_output_dim=1, # Output dim for LoRA path classifiers (if used)
-                 detector_head_output_dim=4 + 1,
+                 num_classes=1,
                  **kwargs):
         super().__init__()
 
-        print(f"Creating base model: {backbone_name} (pretrained={backbone_pretrained})")
+        self.max_rank_potential = max_rank_potential
+        self.num_stages = num_stages
+        self.num_classes = num_classes
+
         self.base_model = timm.create_model(
             backbone_name,
             pretrained=backbone_pretrained,
-            num_classes=backbone_num_classes,
             **kwargs
         )
-        print("Base model created.")
+        if hasattr(self.base_model, 'embed_dim'):
+            self.embed_dim = self.base_model.embed_dim
+        elif hasattr(self.base_model, 'patch_embed') and hasattr(self.base_model.patch_embed, 'proj') and hasattr(self.base_model.patch_embed.proj, 'out_channels'):
+             self.embed_dim = self.base_model.patch_embed.proj.out_channels
+        elif hasattr(self.base_model, 'norm') and hasattr(self.base_model.norm, 'normalized_shape'):
+             norm_shape = self.base_model.norm.normalized_shape
+             self.embed_dim = norm_shape[0] if isinstance(norm_shape, (list, tuple)) else norm_shape
+        elif hasattr(self.base_model, 'blocks') and len(self.base_model.blocks) > 0 and hasattr(self.base_model.blocks[0].attn, 'dim'):
+             self.embed_dim = self.base_model.blocks[0].attn.dim
+        elif hasattr(self.base_model, 'head') and hasattr(self.base_model.head, 'in_features'):
+             self.embed_dim = self.base_model.head.in_features
+        else:
+             raise ValueError("Cannot automatically determine embed_dim for the base model. Please check model structure or provide it explicitly.")
 
-        print(f"Replacing {len(self.base_model.blocks)} blocks with ParallelDynamicLoRABlock...")
         original_blocks = list(self.base_model.blocks)
         new_blocks = []
         for i, original_block in enumerate(original_blocks):
-            if not isinstance(original_block, TimmBlock):
-                 print(f"Warning: Block {i} is not a TimmBlock, skipping replacement.")
+            if isinstance(original_block, TimmBlock):
+                 lora_block = ParallelDynamicLoRABlock(
+                     original_block=original_block,
+                     max_rank_potential=max_rank_potential,
+                     num_stages=num_stages,
+                     rank_dropout_p=rank_dropout_p
+                 )
+                 new_blocks.append(lora_block)
+            else:
                  new_blocks.append(original_block)
-                 continue
-
-            lora_block = ParallelDynamicLoRABlock(
-                original_block=original_block,
-                num_loras=num_loras,
-                max_rank_potential=max_rank_potential,
-                num_stages=num_stages,
-                rank_dropout_p=rank_dropout_p
-            )
-            new_blocks.append(lora_block)
 
         if isinstance(self.base_model.blocks, nn.Sequential):
              self.base_model.blocks = nn.Sequential(*new_blocks)
         elif isinstance(self.base_model.blocks, nn.ModuleList):
              self.base_model.blocks = nn.ModuleList(new_blocks)
         else:
-             print("Warning: Unknown block container type. Replacing attribute directly.")
              self.base_model.blocks = nn.ModuleList(new_blocks)
-        print("Blocks replaced.")
 
-        self.num_loras = num_loras
-        self.max_rank_potential = 0
-        self.num_stages = 0
-        if self.num_loras > 0 and isinstance(self.base_model.blocks[0], ParallelDynamicLoRABlock):
-             self.max_rank_potential = self.base_model.blocks[0].attn.max_rank_potential
-             self.num_stages = self.base_model.blocks[0].attn.num_stages
+        self.stage_classifiers = nn.ModuleDict()
+        for s in range(self.num_stages):
+            stage_key = f'stage_{s}'
+            self.stage_classifiers[stage_key] = LoRAPathClassifier(self.embed_dim, self.num_classes)
 
         self.current_stage = -1
         self.current_stage_active_rank_count = 0
-
-
-        self.lora_path_classifiers = nn.ModuleList(
-            [LoRAPathAvgPoolClassifier(self.base_model.embed_dim, num_classes=lora_classifier_output_dim)
-             for _ in range(self.num_loras)]
-        ) if self.num_loras > 0 else nn.ModuleList()
-
-
-        # Define a simple detection head using CLS tokens
-        # This is a simplified example. A real detector needs spatial features.
-        # We'll concatenate the base CLS token and the aggregated LoRA CLS token (if available)
-        # Or you could process each LoRA CLS token separately and combine results.
-        # For simplicity, let's use the base_cls_token and the list of lora_cls_tokens returned by the modified forward.
-
-        # Calculate input dimension for the detection head
-        # Base CLS token dim + (Num LoRAs * LoRA CLS token dim)
-        # Assuming base_cls_token and lora_cls_tokens have the same dimension (embed_dim)
-        detector_head_input_dim = self.base_model.embed_dim
-        if self.num_loras > 0:
-             detector_head_input_dim += self.num_loras * self.base_model.embed_dim
-
-        # Simple linear detection head
-        self.detector_head = nn.Linear(detector_head_input_dim, detector_head_output_dim)
-
-        # 4. Freeze parameters if requested
-        if freeze_backbone_base:
-            print("Freezing base parameters...")
-            self.freeze_base_parameters()
-            print("Base parameters frozen.")
-
-            trainable_params = 0
-            total_params = 0
-            trainable_names = []
-            for name, param in self.named_parameters():
-                total_params += param.numel()
-                if param.requires_grad:
-                    trainable_params += param.numel()
-                    trainable_names.append(name)
-            print(f"Total params: {total_params:,}")
-            print(f"Trainable params: {trainable_params:,} ({trainable_params/total_params*100:.2f}%)")
-
-
-    def freeze_base_parameters(self):
-        """Freezes non-LoRA parameters in the base model and the LoRA classifiers."""
-        for name, param in self.base_model.named_parameters():
-            is_lora_param = False
-            if '.attn.lora_q.' in name or '.attn.lora_v.' in name:
-                 if '.lora_components_per_stage.' in name and ('lora_a' in name or 'lora_b' in name):
-                      is_lora_param = True
-
-            if not is_lora_param:
-                param.requires_grad = False
-            else:
-                 param.requires_grad = True
-
-        # Freeze LoRA classifiers initially (or based on training strategy)
-        # Typically, these are trained along with LoRA weights.
-        # If they should be frozen, uncomment below:
-        # for param in self.lora_path_classifiers.parameters():
-        #     param.requires_grad = False
-
-        # Explicitly ensure base model components (patch_embed, cls_token, etc.) are frozen
-        # This might overlap with the loop above but ensures critical parts are frozen.
-        components_to_freeze = [
-            self.base_model.patch_embed,
-            self.base_model.cls_token,
-            self.base_model.pos_embed,
-            self.base_model.norm,
-            self.base_model.head,
-            getattr(self.base_model, 'head_dist', None)
-        ]
-        for component in components_to_freeze:
-            if component is not None:
-                if isinstance(component, nn.Parameter):
-                     component.requires_grad = False
-                else:
-                     for param in component.parameters():
-                          param.requires_grad = False
-
-        # Ensure the detector head is trainable
-        for param in self.detector_head.parameters():
-             param.requires_grad = True
 
 
     def start_new_stage(self, stage_index, initial_active_rank=1):
@@ -163,7 +82,7 @@ class LoRADetector(nn.Module):
 
         for block in self.base_model.blocks:
             if isinstance(block, ParallelDynamicLoRABlock):
-                block.set_current_stage_and_rank_for_all(self.current_stage, self.current_stage_active_rank_count)
+                block.set_current_stage_and_rank(self.current_stage, self.current_stage_active_rank_count)
 
     def increment_active_rank(self, increment=1):
         if self.current_stage < 0:
@@ -175,7 +94,7 @@ class LoRADetector(nn.Module):
             print(f"Stage {self.current_stage}: Incrementing active rank to {self.current_stage_active_rank_count}")
             for block in self.base_model.blocks:
                 if isinstance(block, ParallelDynamicLoRABlock):
-                    block.set_current_stage_and_rank_for_all(self.current_stage, self.current_stage_active_rank_count)
+                     block.set_current_stage_and_rank(self.current_stage, self.current_stage_active_rank_count)
         else:
              print(f"Stage {self.current_stage}: Rank already at max potential ({self.max_rank_potential}).")
 
@@ -186,144 +105,128 @@ class LoRADetector(nn.Module):
             for block in self.base_model.blocks:
                 if isinstance(block, ParallelDynamicLoRABlock):
                     params.extend(block.get_params_for_stage(self.current_stage))
-        for classifier in self.lora_path_classifiers:
-             params.extend(classifier.parameters())
-
         return list(dict.fromkeys(params))
 
-    def set_inference_configuration(self, stage_index: int, rank_config: List[List[int]]):
-         if not (0 <= stage_index < self.num_stages):
-             raise ValueError(f"Invalid stage_index {stage_index}. Must be between 0 and {self.num_stages - 1}.")
+    def set_ranks_for_stage_blocks(self, stage_index: int, ranks: List[int]):
+        """
+        为指定阶段内的每个LoRA Block设置不同的rank。
 
-         if not isinstance(rank_config, list) or len(rank_config) != len(self.base_model.blocks):
-             raise ValueError(f"rank_config must be a list of length {len(self.base_model.blocks)} (model depth).")
+        Args:
+            stage_index (int): 要修改的阶段索引。必须在 0 到 num_stages - 1 之间。
+            ranks (List[int]): 一个整数列表，列表长度必须等于网络中LoRA Block的数量。
+                               列表中的每个元素指定对应Block在此阶段的rank。
+                               每个rank值必须在 0 到 max_rank_potential 之间。
+        """
+        if not (0 <= stage_index < self.num_stages):
+            raise ValueError(f"Invalid stage_index {stage_index}. Must be between 0 and {self.num_stages - 1}.")
 
-         self.current_stage = stage_index
+        lora_blocks = [block for block in self.base_model.blocks if isinstance(block, ParallelDynamicLoRABlock)]
+        num_lora_blocks = len(lora_blocks)
 
-         for block_idx, block in enumerate(self.base_model.blocks):
-             if isinstance(block, ParallelDynamicLoRABlock):
-                 block_rank_cfg = rank_config[block_idx]
-                 if not isinstance(block_rank_cfg, list) or len(block_rank_cfg) != block.attn.num_loras:
-                      raise ValueError(f"Element {block_idx} in rank_config must be a list of length {block.attn.num_loras} (num_loras).")
+        if len(ranks) != num_lora_blocks:
+            raise ValueError(f"Provided ranks list length ({len(ranks)}) does not match the number of LoRA Blocks ({num_lora_blocks}).")
 
-                 if hasattr(block.attn, 'set_inference_rank_config'):
-                      block.attn.set_inference_rank_config(stage_index, block_rank_cfg)
-                 else:
-                      print(f"Warning: ParallelDynamicLoRAAttention does not have set_inference_rank_config method.")
+        print(f"Setting Ranks for {num_lora_blocks} LoRA Blocks in Stage {stage_index}: {ranks}")
+        for i, block in enumerate(lora_blocks):
+            rank = ranks[i]
+            if not (0 <= rank <= self.max_rank_potential):
+                raise ValueError(f"Invalid rank {rank} for Block {i}. Must be between 0 and {self.max_rank_potential}.")
+            block.set_rank_for_stage(stage_index, rank)
 
 
-    def forward_features(self, x) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    def forward_features(self, x) -> Tuple[torch.Tensor, Dict[str, List[Optional[torch.Tensor]]]]:
         x = self.base_model.patch_embed(x)
-        if self.base_model.cls_token is not None:
+        if hasattr(self.base_model, 'cls_token') and self.base_model.cls_token is not None:
              cls_tokens = self.base_model.cls_token.expand(x.shape[0], -1, -1)
              x = torch.cat((cls_tokens, x), dim=1)
-        x = self.base_model.pos_drop(x + self.base_model.pos_embed)
+        if hasattr(self.base_model, 'pos_embed') and self.base_model.pos_embed is not None:
+             x = x + self.base_model.pos_embed
+        x = self.base_model.pos_drop(x)
 
-        collected_lora_features_per_lora = [[] for _ in range(self.num_loras)]
+        num_blocks = len(self.base_model.blocks)
+        outputs_by_stage = {f'stage_{s}': [None] * num_blocks for s in range(self.num_stages)}
 
-        for blk in self.base_model.blocks:
+        current_input = x
+        for block_idx, blk in enumerate(self.base_model.blocks):
             if isinstance(blk, ParallelDynamicLoRABlock):
-                x, lora_combined_features_block = blk(x)
-                if self.num_loras > 0 and lora_combined_features_block:
-                    for i in range(min(self.num_loras, len(lora_combined_features_block))):
-                         collected_lora_features_per_lora[i].append(lora_combined_features_block[i])
+                x_base_output, block_stage_outputs_dict = blk(current_input)
+                current_input = x_base_output
+                for stage_key, stage_block_output in block_stage_outputs_dict.items():
+                    if stage_key in outputs_by_stage:
+                         outputs_by_stage[stage_key][block_idx] = stage_block_output
+                    else:
+                        print(f"Warning: Encountered unexpected stage key '{stage_key}' in block {block_idx}. Ignoring.")
             else:
-                x = blk(x)
+                current_input = blk(current_input)
+                # No LoRA output for this block, None placeholders are already initialized
+                current_input = blk(current_input)
 
-        x_base_norm = self.base_model.norm(x)
+        x_base_norm = self.base_model.norm(current_input)
 
-        final_lora_feature_tensors = []
-        if self.num_loras > 0:
-             if all(len(p) == len(self.base_model.blocks) for p in collected_lora_features_per_lora):
-                  for features_one_lora in collected_lora_features_per_lora:
-                      final_lora_feature_tensors.append(torch.stack(features_one_lora, dim=1))
-             else:
-                  pass
-
-        return x_base_norm, final_lora_feature_tensors
-
-    def extract_lora_cls_tokens(self, list_of_lora_feature_tensors: List[torch.Tensor]) -> List[torch.Tensor]:
-        """Extracts the CLS token feature from the stacked block features for each LoRA path."""
-        list_of_lora_cls_token_tensors = []
-        if not list_of_lora_feature_tensors or self.base_model.cls_token is None:
-            return []
-
-        for feature_tensor in list_of_lora_feature_tensors:
-            cls_token_tensor = feature_tensor[:, -1, 0, :]
-            list_of_lora_cls_token_tensors.append(cls_token_tensor)
-
-        return list_of_lora_cls_token_tensors
+        return x_base_norm, outputs_by_stage
 
 
-    def forward(self, x) -> torch.Tensor:
-        x_base_norm, list_of_lora_feature_tensors = self.forward_features(x)
+    def extract_lora_cls_tokens(self, outputs_by_stage: Dict[str, List[Optional[torch.Tensor]]]) -> Dict[str, Optional[List[torch.Tensor]]]:
+        """ Extracts a list of CLS tokens for each stage separately. """
+        if not hasattr(self.base_model, 'cls_token') or self.base_model.cls_token is None:
+            return {stage_key: None for stage_key in outputs_by_stage}
 
-        base_cls_token = None
-        if self.base_model.cls_token is not None:
-            base_cls_token = x_base_norm[:, 0]
+        cls_token_lists_by_stage: Dict[str, Optional[List[torch.Tensor]]] = {}
+        for stage_key, block_outputs_list in outputs_by_stage.items():
+            stage_cls_tokens_list = []
+            for block_output in block_outputs_list:
+                if block_output is not None and block_output.ndim > 1:
+                    stage_cls_tokens_list.append(block_output[:, 0])
 
-        list_of_lora_cls_token_tensors = self.extract_lora_cls_tokens(list_of_lora_feature_tensors)
+            if not stage_cls_tokens_list:
+                cls_token_lists_by_stage[stage_key] = None
+            else:
+                 cls_token_lists_by_stage[stage_key] = stage_cls_tokens_list
 
-        features_for_head = []
-        if base_cls_token is not None:
-             features_for_head.append(base_cls_token)
+        return cls_token_lists_by_stage
 
-        if list_of_lora_cls_token_tensors:
-             stacked_lora_cls = torch.stack(list_of_lora_cls_token_tensors, dim=1)
-             flattened_lora_cls = stacked_lora_cls.view(stacked_lora_cls.size(0), -1)
-             features_for_head.append(flattened_lora_cls)
+    def forward(self, x) -> Dict:
+        """
+        Performs forward pass, extracting base features and stage-wise LoRA features,
+        and classifies the LoRA features for each stage.
+        """
+        x_base_norm, outputs_by_stage = self.forward_features(x)
 
-        if not features_for_head:
-             if hasattr(self.base_model, 'global_pool') and self.base_model.global_pool == 'avg':
-                  base_pooled = x_base_norm.mean(dim=1)
-                  features_for_head.append(base_pooled)
-                  raise NotImplementedError("Detector head requires CLS tokens or a different pooling strategy for models without CLS.")
-             else:
-                  raise ValueError("No CLS tokens or suitable features available for the detection head.")
+        final_base_cls = None
+        if hasattr(self.base_model, 'cls_token') and self.base_model.cls_token is not None:
+            if x_base_norm.ndim > 1:
+                final_base_cls = x_base_norm[:, 0]
+            else:
+                print(f"Warning: Cannot extract base CLS token from x_base_norm with shape {x_base_norm.shape}.")
 
+        cls_token_lists_by_stage = self.extract_lora_cls_tokens(outputs_by_stage)
 
-        combined_features = torch.cat(features_for_head, dim=1)
+        stage_logits = {}
+        for stage_key, token_list in cls_token_lists_by_stage.items():
+            if token_list is not None and len(token_list) > 0:
+                 try:
+                     first_shape = token_list[0].shape
+                     if not all(t.shape == first_shape for t in token_list):
+                          raise ValueError(f"Inconsistent token shapes in list for {stage_key}. Shapes: {[t.shape for t in token_list]}")
 
-        detection_output = self.detector_head(combined_features)
+                     stacked_tokens = torch.stack(token_list, dim=1)
 
-        return detection_output
+                     if stage_key in self.stage_classifiers:
+                         logits = self.stage_classifiers[stage_key](stacked_tokens)
+                         stage_logits[stage_key] = logits
+                     else:
+                          stage_logits[stage_key] = None
 
-if __name__ == '__main__':
-    print("Testing LoRADetector creation...")
-    detector = LoRADetector(
-        backbone_name='vit_tiny_patch16_224',
-        backbone_pretrained=True,
-        num_loras=2,
-        max_rank_potential=4,
-        num_stages=2,
-        freeze_backbone_base=True,
-        lora_classifier_output_dim=1,
-        detector_head_output_dim=5
-    )
-    print("LoRADetector created successfully.")
+                 except (RuntimeError, ValueError) as e:
+                     print(f"Error processing or stacking tokens for {stage_key}: {e}")
+                     if 'token_list' in locals() and isinstance(token_list, list):
+                         print(f"Token list shapes: {[t.shape for t in token_list if hasattr(t, 'shape')]}")
+                     stage_logits[stage_key] = None
 
-    print("Testing forward pass...")
-    dummy_input = torch.randn(2, 3, 224, 224)
-    detector.eval()
-    with torch.no_grad():
-         detector.start_new_stage(stage_index=0, initial_active_rank=2)
-         detection_output = detector(dummy_input)
+            else:
+                stage_logits[stage_key] = None
 
-    print("Forward pass successful.")
-    print("Detection output shape:", detection_output.shape)
-
-    print("\nTesting parameter freezing...")
-    for name, param in detector.named_parameters():
-         is_lora_component = '.attn.lora_q.' in name or '.attn.lora_v.' in name
-         if is_lora_component:
-              is_lora_component = '.lora_components_per_stage.' in name and ('lora_a' in name or 'lora_b' in name)
-
-         is_lora_classifier = name.startswith("lora_path_classifiers")
-         is_detector_head = name.startswith("detector_head")
-
-         if is_lora_component or is_lora_classifier or is_detector_head:
-              if not param.requires_grad:
-                   print(f"Error: Trainable parameter frozen: {name}")
-         elif param.requires_grad:
-              print(f"Error: Base parameter not frozen: {name}")
-    print("Parameter freezing check complete (check output for errors).")
+        return {
+            "base_cls_token": final_base_cls,
+            "stage_logits": stage_logits
+        }

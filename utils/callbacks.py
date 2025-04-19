@@ -22,14 +22,9 @@ class RankIncrementCallback(Callback):
 
     def on_train_batch_start(self, trainer: L.Trainer, pl_module: L.LightningModule, batch, batch_idx: int):
         """ Checks global step and increments rank if interval is reached. """
-        # Check if the interval is finite (i.e., enabled)
         if self.increase_interval_steps == float('inf'):
             return
 
-        # global_step counts completed steps. We want to increment *before* the step runs.
-        # So, check if the *next* step (current global_step + 1) is a multiple.
-        # However, global_step might start at 0 or be offset. Let's check based on completed steps.
-        # Increment after step `N * interval - 1` is completed, so check `trainer.global_step + 1`.
         effective_step = trainer.global_step + 1 # The step number we are about to start
 
         if effective_step > 0 and effective_step % self.increase_interval_steps == 0:

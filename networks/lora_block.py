@@ -14,6 +14,7 @@ class ParallelDynamicLoRABlock(nn.Module):
     def __init__(
             self,
             original_block: TimmBlock,
+            embed_dim: int, # 添加 embed_dim 参数
             max_rank_potential=8,
             num_stages=1,
             rank_dropout_p=0.0):
@@ -22,7 +23,7 @@ class ParallelDynamicLoRABlock(nn.Module):
 
         self.attn = ParallelDynamicLoRAAttention(
             original_attn=self.original_block.attn,
-            dim=self.original_block.attn.dim,
+            dim=embed_dim, # 使用传递进来的 embed_dim
             num_heads=self.original_block.attn.num_heads,
             max_rank_potential=max_rank_potential,
             num_stages=num_stages,
@@ -49,16 +50,24 @@ class ParallelDynamicLoRABlock(nn.Module):
         x_base_attn_proj, stage_attn_outputs = self.attn(x_norm1)
 
         # 主分支 Block 输出
-        x_base_residual = x + self.original_block.drop_path(x_base_attn_proj)
+        # 应用 DropPath，如果存在
+        # 检查 original_block 是否有 drop_path 属性
+        drop_path = self.original_block.drop_path if hasattr(self.original_block, 'drop_path') else nn.Identity()
+
+        # 主分支 Block 输出
+        # 在残差连接中应用 DropPath
+        x_base_residual = x + drop_path(x_base_attn_proj)
         x_base_mlp = self.original_block.mlp(self.original_block.norm2(x_base_residual))
-        x_base_output = x_base_residual + self.original_block.drop_path(x_base_mlp)
+        # 在第二个残差连接中应用 DropPath
+        x_base_output = x_base_residual + drop_path(x_base_mlp)
 
         # 并行分支：每个阶段的完整 Block 输出
         stage_block_outputs = {}
         for stage_key, stage_attn_proj in stage_attn_outputs.items():
-            stage_residual = x + self.original_block.drop_path(stage_attn_proj)
+            # 对每个阶段的输出应用相同的 DropPath
+            stage_residual = x + drop_path(stage_attn_proj)
             stage_mlp = self.original_block.mlp(self.original_block.norm2(stage_residual))
-            stage_block_output = stage_residual + self.original_block.drop_path(stage_mlp)
+            stage_block_output = stage_residual + drop_path(stage_mlp)
             stage_block_outputs[stage_key] = stage_block_output
 
         return x_base_output, stage_block_outputs

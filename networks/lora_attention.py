@@ -36,7 +36,7 @@ class ParallelDynamicLoRAAttention(nn.Module):
         self.lora_q = nn.ModuleDict()
         self.lora_v = nn.ModuleDict()
         for i in range(num_stages):
-            stage_key = str(i)
+            stage_key = f'stage_{i}' # 统一键格式为 'stage_i'
             self.lora_q[stage_key] = DynamicRankLoRALayer(dim, dim, max_rank_potential, rank_dropout_p)
             self.lora_v[stage_key] = DynamicRankLoRALayer(dim, dim, max_rank_potential, rank_dropout_p)
 
@@ -54,7 +54,7 @@ class ParallelDynamicLoRAAttention(nn.Module):
 
         self.current_stage_index = stage_index
 
-        stage_key = str(stage_index)
+        stage_key = f'stage_{stage_index}' # 统一键格式为 'stage_i'
         if stage_key in self.lora_q:
             self.lora_q[stage_key].set_active_rank(active_rank_count)
         else:
@@ -73,7 +73,7 @@ class ParallelDynamicLoRAAttention(nn.Module):
          if not (0 <= stage_index < self.num_stages):
              print(f"警告: 尝试为无效的阶段索引 {stage_index} 设置秩。操作已忽略。")
              return
-         stage_key = str(stage_index)
+         stage_key = f'stage_{stage_index}' # 统一键格式为 'stage_i'
          if stage_key in self.lora_q: self.lora_q[stage_key].set_active_rank(active_rank_count)
          else: print(f"警告: 未找到 Stage key {stage_key} 对应的 LoRA Q 层。")
          if stage_key in self.lora_v: self.lora_v[stage_key].set_active_rank(active_rank_count)
@@ -98,7 +98,7 @@ class ParallelDynamicLoRAAttention(nn.Module):
         if not (0 <= stage_index < self.num_stages):
             print(f"警告: 在 get_params_for_stage 中请求了无效的阶段索引 {stage_index}。")
             return params
-        stage_key = str(stage_index)
+        stage_key = f'stage_{stage_index}' # 统一键格式为 'stage_i'
         if stage_key in self.lora_q:
              params.extend(self.lora_q[stage_key].get_active_params())
         if stage_key in self.lora_v:
@@ -134,7 +134,7 @@ class ParallelDynamicLoRAAttention(nn.Module):
         if 0 <= self.current_stage_index < self.num_stages:
             # 遍历从 0 到当前阶段索引的所有阶段
             for i in range(self.current_stage_index + 1):
-                stage_key = str(i)
+                stage_key = f'stage_{i}' # 修改这里，使用 'stage_i' 格式的键
                 if stage_key in self.lora_q and stage_key in self.lora_v:
                     lora_q_layer = self.lora_q[stage_key]
                     lora_v_layer = self.lora_v[stage_key]

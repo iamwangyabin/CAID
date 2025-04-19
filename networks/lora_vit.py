@@ -50,6 +50,7 @@ class LoRADetector(nn.Module):
             if isinstance(original_block, TimmBlock):
                  lora_block = ParallelDynamicLoRABlock(
                      original_block=original_block,
+                     embed_dim=self.embed_dim, # 传递 embed_dim
                      max_rank_potential=max_rank_potential,
                      num_stages=num_stages,
                      rank_dropout_p=rank_dropout_p

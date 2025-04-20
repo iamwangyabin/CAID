@@ -55,11 +55,12 @@ class DynamicLoraPipeline(IncrementalLearningPipeline):
         )
         # 学习率监视器回调
         lr_monitor = LearningRateMonitor(logging_interval='step')
-        # **Dynamic LoRA 特定**: 添加 Rank 增长回调
-        rank_increase_interval = self.conf.train.get('rank_increase_interval', 500) # Rank 增长间隔步数
+        # **Dynamic LoRA 特定**: 添加 Rank 增长回调 (基于 Epoch)
+        # 从配置中读取 rank 增长间隔的 epoch 数，默认为 1
+        rank_increase_interval_epochs = self.conf.train.get('rank_increase_interval_epochs', 1)
         rank_increment_amount = self.conf.train.get('rank_increment_amount', 1)    # Rank 增长量
         rank_increment_callback = RankIncrementCallback(
-            increase_interval_steps=rank_increase_interval,
+            increase_interval_epochs=rank_increase_interval_epochs,
             increment_amount=rank_increment_amount
         )
 

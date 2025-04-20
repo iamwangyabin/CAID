@@ -1,0 +1,100 @@
+arch: "LoRADetector"
+name: "lora_detector_incremental"
+
+model:
+  backbone_name: 'vit_base_patch16_224'
+  backbone_pretrained: True
+  num_stages: 4
+  max_rank_potential: 8
+  rank_dropout_p: 0.1
+  num_classes: 1
+
+train:
+  pipeline:
+    _target_: engine.incremental_lora_trainer.IncrementalLoRATrainer
+  gpu_ids: [0]
+  train_epochs: 5
+  check_val_every_n_epoch: 1
+  seed: 1995
+  initial_active_rank: 1
+  rank_increase_interval_epochs: 1 # Interval (in epochs) to increase LoRA rank
+  optimizer:
+    _target_: torch.optim.AdamW
+    lr: 1e-4
+    weight_decay: 0.01
+    betas: [0.9, 0.999]
+  scheduler:
+    _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: ${train.train_epochs}
+    eta_min: 1e-6
+    interval: epoch
+    frequency: 1
+  checkpoint_monitor: 'val_ap'
+  checkpoint_mode: 'max'
+
+datasets:
+  base_path: "/data/yabin/DF-arrow-data"
+  train:
+    source:
+      - _target_: data.arrow_datasets.ArrowDatasets
+        data_root: '${datasets.base_path}/ForenSynths'
+        sub_sets: [ "car" ]
+        split: 'train_binary'
+      - _target_: data.arrow_datasets.ArrowDatasets
+        data_root: '${datasets.base_path}/ForenSynths'
+        sub_sets: [ "chair" ]
+        split: 'train_binary'
+      - _target_: data.arrow_datasets.ArrowDatasets
+        data_root: '${datasets.base_path}/ForenSynths'
+        sub_sets: [ "horse"]
+        split: 'train_binary'
+      - _target_: data.arrow_datasets.ArrowDatasets
+        data_root: '${datasets.base_path}/ForenSynths'
+        sub_sets: [ "cat" ]
+        split: 'train_binary'
+    split_ratio: 0.95
+    batch_size: 64
+    loader_workers: 16
+    trsf:
+      - _target_: data.augmentations.DataAugment
+        blur_prob: 0.1
+        blur_sig: [ 0.0, 3.0 ]
+        jpg_prob: 0.1
+        jpg_method: [ 'cv2', 'pil' ]
+        jpg_qual: [ 30, 100 ]
+      - _target_: torchvision.transforms.RandomResizedCrop
+        size: 224
+        scale: (0.8, 1.0)
+      - _target_: torchvision.transforms.RandomHorizontalFlip
+        p: 0.5
+      - _target_: torchvision.transforms.ToTensor
+      - _target_: torchvision.transforms.Normalize
+        mean: [ 0.485, 0.456, 0.406 ]
+        std: [ 0.229, 0.224, 0.225 ]
+
+  test:
+    source:
+    - _target_: data.arrow_datasets.ArrowDatasets
+      data_root: '${datasets.base_path}/ForenSynths'
+      sub_sets: [ "biggan", "deepfake", "gaugan", "progan"  ]
+      split: 'test'
+      benchmark_name: 'ForenSynths'
+
+    - _target_: data.arrow_datasets.ArrowDatasets
+      data_root: '${datasets.base_path}/synthwildx'
+      sub_sets: ['dalle3', 'firefly', 'midjourney_v5']
+      split: 'test'
+      benchmark_name: 'Synthwildx'
+
+    batch_size: 128
+    loader_workers: 16
+    trsf:
+      - _target_: torchvision.transforms.Resize
+        size: 256
+        interpolation: 3
+      - _target_: torchvision.transforms.CenterCrop
+        size: 224
+      - _target_: torchvision.transforms.ToTensor
+      - _target_: torchvision.transforms.Normalize
+        mean: [ 0.485, 0.456, 0.406 ]
+        std: [ 0.229, 0.224, 0.225 ]

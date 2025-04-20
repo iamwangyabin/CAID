@@ -18,9 +18,7 @@ class IncrementalLoRATrainer(L.LightningModule):
         self.opt = opt
         self.current_stage_index = stage_index
 
-
         self.model = get_model(opt)
-
 
         self.validation_step_outputs_gts, self.validation_step_outputs_preds = [], []
         self.test_step_outputs = {}
@@ -88,16 +86,10 @@ class IncrementalLoRATrainer(L.LightningModule):
         trainable_params_list = [p for p in self.parameters() if p.requires_grad]
         num_trainable = sum(p.numel() for p in trainable_params_list)
 
-        optimizer = hydra.utils.instantiate(self.opt.train.optimizer, params=trainable_params_list)
-        scheduler_config = hydra.utils.instantiate(self.opt.train.scheduler, optimizer=optimizer)
+        optimizer = self.opt.train.optimizer(params=trainable_params_list)
+        scheduler = self.opt.train.scheduler(optimizer)
 
-        scheduler_dict = {
-            "scheduler": scheduler_config,
-            "interval": "step", # Or "epoch" depending on your scheduler logic
-            "frequency": 1,
-        }
-        return [optimizer], [scheduler_dict]
-
+        return [optimizer], [scheduler]
 
 
     def test_step(self, batch, batch_idx, dataloader_idx=0):

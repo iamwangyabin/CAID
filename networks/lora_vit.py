@@ -28,6 +28,7 @@ class LoRADetector(nn.Module):
         self.base_model = timm.create_model(
             backbone_name,
             pretrained=backbone_pretrained,
+            num_classes=1,
             **kwargs
         )
         if hasattr(self.base_model, 'embed_dim'):
@@ -204,9 +205,6 @@ class LoRADetector(nn.Module):
         return x_base_norm, outputs_by_stage
 
     def extract_lora_cls_tokens(self, outputs_by_stage: Dict[str, List[Optional[torch.Tensor]]]) -> Dict[str, Optional[List[torch.Tensor]]]:
-        if not hasattr(self.base_model, 'cls_token') or self.base_model.cls_token is None:
-            return {stage_key: None for stage_key in outputs_by_stage}
-
         cls_token_lists_by_stage: Dict[str, Optional[List[torch.Tensor]]] = {}
         for stage_key, block_outputs_list in outputs_by_stage.items():
             stage_cls_tokens_list = []
@@ -214,26 +212,28 @@ class LoRADetector(nn.Module):
                 if block_output is not None and block_output.ndim > 1:
                     stage_cls_tokens_list.append(block_output[:, 0])
 
-            if not stage_cls_tokens_list:
-                cls_token_lists_by_stage[stage_key] = None
-            else:
-                cls_token_lists_by_stage[stage_key] = stage_cls_tokens_list
+            cls_token_lists_by_stage[stage_key] = stage_cls_tokens_list
 
         return cls_token_lists_by_stage
 
     def forward(self, x: torch.Tensor) -> Dict[str, Optional[torch.Tensor]]:
         x_base_norm, outputs_by_stage = self.forward_features(x)
+        if self.current_stage >= 0:
+            cls_token_lists_by_stage = self.extract_lora_cls_tokens(outputs_by_stage)
+            stage_logits = {}
+            for stage_idx, (stage_key, token_list) in enumerate(cls_token_lists_by_stage.items()):
+                stacked_tokens = torch.stack(token_list, dim=1)
+                logits = self.stage_classifiers[stage_key](stacked_tokens)
+                stage_logits[stage_key] = logits
 
-        cls_token_lists_by_stage = self.extract_lora_cls_tokens(outputs_by_stage)
 
-        stage_logits = {}
-        for stage_idx, (stage_key, token_list) in enumerate(cls_token_lists_by_stage.items()):
-            stacked_tokens = torch.stack(token_list, dim=1)
-            logits = self.stage_classifiers[stage_key](stacked_tokens)
-            stage_logits[stage_key] = logits
-
-
-        return {
-            "current_logits": logits,
-            "stage_logits": stage_logits
-        }
+            return {
+                "current_logits": logits,
+                "stage_logits": stage_logits
+            }
+        
+        else:
+            logits = self.base_model.head(x_base_norm[:,0,:])
+            return {
+                "current_logits": logits
+            }

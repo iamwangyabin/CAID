@@ -130,29 +130,21 @@ class ParallelDynamicLoRAAttention(nn.Module):
 
         stage_outputs = {} # 存储每个阶段的输出
 
-        # 如果当前阶段索引有效，则计算 LoRA 阶段的输出
         if 0 <= self.current_stage_index < self.num_stages:
-            # 遍历从 0 到当前阶段索引的所有阶段
             for i in range(self.current_stage_index + 1):
-                stage_key = f'stage_{i}' # 修改这里，使用 'stage_i' 格式的键
+                stage_key = f'stage_{i}' 
                 if stage_key in self.lora_q and stage_key in self.lora_v:
                     lora_q_layer = self.lora_q[stage_key]
                     lora_v_layer = self.lora_v[stage_key]
 
                     # 如果当前阶段的 LoRA 层有激活的秩
                     if lora_q_layer.active_rank_count > 0 or lora_v_layer.active_rank_count > 0:
-                        lora_delta_q_stage = torch.zeros_like(q_base)
-                        lora_delta_v_stage = torch.zeros_like(v_base)
 
-                        # 计算 LoRA Q 的增量
-                        if lora_q_layer.active_rank_count > 0:
-                            lora_delta_q_raw = lora_q_layer(x)
-                            lora_delta_q_stage = lora_delta_q_raw.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                        lora_delta_q_raw = lora_q_layer(x) + torch.zeros_like(x)
+                        lora_delta_q_stage = lora_delta_q_raw.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
-                        # 计算 LoRA V 的增量
-                        if lora_v_layer.active_rank_count > 0:
-                            lora_delta_v_raw = lora_v_layer(x)
-                            lora_delta_v_stage = lora_delta_v_raw.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+                        lora_delta_v_raw = lora_v_layer(x) + torch.zeros_like(x)
+                        lora_delta_v_stage = lora_delta_v_raw.reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
 
                         # 将 LoRA 增量添加到原始 Q 和 V
                         q_stage = q_base + lora_delta_q_stage

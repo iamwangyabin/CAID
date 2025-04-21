@@ -5,14 +5,14 @@ model:
   backbone_name: 'vit_base_patch16_224'
   backbone_pretrained: True
   num_stages: 4
-  max_rank_potential: 8
+  max_rank_potential: 2
   rank_dropout_p: 0.1
   num_classes: 1
 
 train:
   pipeline: engine.incremental_lora_trainer.IncrementalLoRATrainer
   gpu_ids: [0]
-  train_epochs: 8
+  train_epochs: 2
   check_val_every_n_epoch: 1
   seed: 1995
   initial_active_rank: 1
@@ -24,14 +24,10 @@ train:
     weight_decay: 1e-3
     betas: [0.9, 0.999]
 
-
   scheduler:
     _target_: torch.optim.lr_scheduler.CosineAnnealingLR
     _partial_: True
     T_max: ${train.train_epochs} 
-
-  checkpoint_monitor: 'val_ap'
-  checkpoint_mode: 'max'
 
 datasets:
   base_path: "/data/yabin/DF-arrow-data"

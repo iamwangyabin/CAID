@@ -9,7 +9,7 @@ class ParallelDynamicLoRABlock(nn.Module):
     def __init__(
             self,
             original_block: TimmBlock,
-            embed_dim: int, # 添加 embed_dim 参数
+            embed_dim: int, 
             max_rank_potential=8,
             num_stages=1,
             rank_dropout_p=0.0):
@@ -18,7 +18,7 @@ class ParallelDynamicLoRABlock(nn.Module):
 
         self.attn = ParallelDynamicLoRAAttention(
             original_attn=self.original_block.attn,
-            dim=embed_dim, # 使用传递进来的 embed_dim
+            dim=embed_dim, 
             num_heads=self.original_block.attn.num_heads,
             max_rank_potential=max_rank_potential,
             num_stages=num_stages,

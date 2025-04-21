@@ -66,3 +66,9 @@ class DynamicRankLoRALayer(nn.Module):
         for i in range(min(active_rank, len(self.lora_components))):
              params.extend(self.lora_components[i].parameters())
         return params
+    
+    def get_params(self):
+        params = []
+        for i in range(len(self.lora_components)):
+             params.extend(self.lora_components[i].parameters())
+        return params

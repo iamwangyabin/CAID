@@ -30,7 +30,6 @@ class IncrementalLearningPipeline:
         self.args, self.cfg_args = self._parse_args()
         self.conf = self._load_config()
         self._initialize_environment()
-        # Defer logging and test loader setup to run()
         self.base_log_dir = None
         self.today_str = None
         self.test_loaders_dict = {}
@@ -170,24 +169,11 @@ class IncrementalLearningPipeline:
         return trainer
 
     def _test_stage(self, trainer, stage_index):
-        """Runs testing on all benchmark datasets after a training stage."""
         print(f"--- Testing after Stage {stage_index + 1} ---")
-
-        model_to_test = None
-        if self.last_stage_checkpoint and os.path.exists(self.last_stage_checkpoint):
-            print(f"Loading model from {self.last_stage_checkpoint} for testing.")
-            try:
-                model_to_test = hydra.utils.get_class(self.conf.train.pipeline).load_from_checkpoint(
-                     self.last_stage_checkpoint,
-                     opt=self.conf
-                 )
-            except Exception as e:
-                 print(f"Error loading checkpoint {self.last_stage_checkpoint} for testing: {e}")
-                 print("Testing will be skipped for this stage.")
-                 return
-        else:
-            print(f"Warning: Checkpoint {self.last_stage_checkpoint} not found. Testing will be skipped.")
-            return
+        model_to_test = hydra.utils.get_class(self.conf.train.pipeline).load_from_checkpoint(
+                self.last_stage_checkpoint,
+                opt=self.conf
+            )
 
         trainer.test(model=model_to_test, dataloaders=list(self.test_loaders_dict.values()))
 

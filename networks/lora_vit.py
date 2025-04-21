@@ -80,7 +80,7 @@ class LoRADetector(nn.Module):
             raise ValueError(f"无效的阶段索引 {stage_index}。必须在 0 到 {self.num_stages - 1} 之间。")
         self.current_stage = stage_index
         self.current_stage_active_rank_count = min(initial_active_rank, self.max_rank_potential)
-        print(f"开始新阶段 {self.current_stage}，初始激活秩: {self.current_stage_active_rank_count}")
+        print(f"Starting new stage {self.current_stage}, initial active rank: {self.current_stage_active_rank_count}")
 
         for block in self.base_model.blocks:
             if isinstance(block, ParallelDynamicLoRABlock):
@@ -88,18 +88,18 @@ class LoRADetector(nn.Module):
 
     def increment_active_rank(self, increment: int = 1):
         if self.current_stage < 0:
-            print("警告: 无法增加秩，没有活动的阶段。")
+            print("Warning: Cannot increase rank, no active stage.")
             return
         new_active_count = min(self.current_stage_active_rank_count + increment, self.max_rank_potential)
 
         if new_active_count > self.current_stage_active_rank_count:
             self.current_stage_active_rank_count = new_active_count
-            print(f"阶段 {self.current_stage}: 正在将激活秩增加到 {self.current_stage_active_rank_count}")
+            print(f"Stage {self.current_stage}: Increasing active rank to {self.current_stage_active_rank_count}")
             for block in self.base_model.blocks:
                 if isinstance(block, ParallelDynamicLoRABlock):
                     block.set_current_stage_and_rank(self.current_stage, self.current_stage_active_rank_count)
         else:
-            print(f"阶段 {self.current_stage}: 秩已达到最大潜力 ({self.max_rank_potential})。")
+            print(f"Stage {self.current_stage}: Rank has reached maximum potential ({self.max_rank_potential}).")
 
     def get_params_for_current_stage(self) -> List[nn.Parameter]:
         params = []
@@ -109,23 +109,17 @@ class LoRADetector(nn.Module):
                     params.extend(block.get_params_for_stage(self.current_stage))
             stage_key = f'stage_{self.current_stage}'
             if stage_key in self.stage_classifiers:
-                print(f"为阶段 {self.current_stage} 添加分类器参数: {stage_key}")
+                print(f"Adding classifier parameters for stage {self.current_stage}: {stage_key}")
                 params.extend(list(self.stage_classifiers[stage_key].parameters()))
             else:
-                print(f"警告: 在 get_params_for_current_stage 中未找到阶段 {stage_key} 的分类器。")
+                print(f"Warning: Classifier for stage {stage_key} not found in get_params_for_current_stage.")
         return list(dict.fromkeys(params))
 
     def set_ranks_for_stage_blocks(self, stage_index: int, ranks: List[int]):
-        if not (0 <= stage_index < self.num_stages):
-            raise ValueError(f"无效的阶段索引 {stage_index}。必须在 0 和 {self.num_stages - 1} 之间。")
-
         lora_blocks = [block for block in self.base_model.blocks if isinstance(block, ParallelDynamicLoRABlock)]
         num_lora_blocks = len(lora_blocks)
 
-        if len(ranks) != num_lora_blocks:
-            raise ValueError(f"提供的 ranks 列表长度 ({len(ranks)}) 与 LoRA Block 的数量 ({num_lora_blocks}) 不匹配。")
-
-        print(f"正在为阶段 {stage_index} 的 {num_lora_blocks} 个 LoRA Block 设置秩: {ranks}")
+        print(f"Setting ranks for {num_lora_blocks} LoRA Blocks in stage {stage_index}: {ranks}")
         for i, block in enumerate(lora_blocks):
             rank = ranks[i]
             if not (0 <= rank <= self.max_rank_potential):
@@ -133,43 +127,23 @@ class LoRADetector(nn.Module):
             block.set_rank_for_stage(stage_index, rank)
  
     def set_trainable_stage(self, stage_idx: int):
-        """
-        Freezes all model parameters and then unfreezes only the parameters
-        belonging to the specified stage (LoRA blocks and classifier).
-        """
-        if not (0 <= stage_idx < self.num_stages):
-            raise ValueError(f"Invalid stage index {stage_idx}. Must be between 0 and {self.num_stages - 1}.")
-
         print(f"Setting trainable parameters for stage {stage_idx}...")
-
-        # 1. Freeze all parameters first
         for param in self.parameters():
             param.requires_grad = False
 
-        # 2. Unfreeze LoRA parameters for the target stage
         num_lora_params_unfrozen = 0
         for block in self.base_model.blocks:
             if isinstance(block, ParallelDynamicLoRABlock):
-                # Assuming get_params_for_stage exists and returns parameters
-                try:
-                    stage_params = block.get_params_for_stage(stage_idx)
-                    for param in stage_params:
-                        param.requires_grad = True
-                        num_lora_params_unfrozen += param.numel()
-                except Exception as e:
-                     print(f"Warning: Could not get or set params for stage {stage_idx} in block {type(block)}. Error: {e}")
+                stage_params = block.get_params_for_stage(stage_idx)
+                for param in stage_params:
+                    param.requires_grad = True
+                    num_lora_params_unfrozen += param.numel()
 
-
-        # 3. Unfreeze the classifier for the target stage
         stage_key = f'stage_{stage_idx}'
         num_classifier_params_unfrozen = 0
-        if stage_key in self.stage_classifiers:
-            for param in self.stage_classifiers[stage_key].parameters():
-                param.requires_grad = True
-                num_classifier_params_unfrozen += param.numel()
-            print(f"Unfroze {num_classifier_params_unfrozen} parameters in classifier {stage_key}.")
-        else:
-            print(f"Warning: Classifier for stage {stage_idx} (key: {stage_key}) not found. Cannot unfreeze.")
+        for param in self.stage_classifiers[stage_key].parameters():
+            param.requires_grad = True
+            num_classifier_params_unfrozen += param.numel()
 
         total_unfrozen = num_lora_params_unfrozen + num_classifier_params_unfrozen
         print(f"Total parameters unfrozen for stage {stage_idx}: {total_unfrozen} ({num_lora_params_unfrozen} LoRA + {num_classifier_params_unfrozen} Classifier)")
@@ -200,14 +174,18 @@ class LoRADetector(nn.Module):
 
         return x_base_norm, outputs_by_stage
 
-    def extract_lora_cls_tokens(self, outputs_by_stage: Dict[str, List[Optional[torch.Tensor]]]) -> Dict[str, Optional[List[torch.Tensor]]]:
-        cls_token_lists_by_stage: Dict[str, Optional[List[torch.Tensor]]] = {}
-        for stage_key, block_outputs_list in outputs_by_stage.items():
-            stage_cls_tokens_list = []
-            for block_output in block_outputs_list:
-                if block_output is not None and block_output.ndim > 1:
-                    stage_cls_tokens_list.append(block_output[:, 0])
+    def extract_lora_cls_tokens(self, outputs_by_stage: Dict[str, List[Optional[torch.Tensor]]]) -> Dict[str, List[torch.Tensor]]:
+        # Ensure we process all stages from 0 up to the current stage
+        cls_token_lists_by_stage: Dict[str, List[torch.Tensor]] = {}
+        for s in range(self.current_stage + 1):
+            stage_key = f'stage_{s}'
 
+            stage_cls_tokens_list = []
+            if stage_key in outputs_by_stage:
+                block_outputs_list = outputs_by_stage[stage_key]
+                for block_output in block_outputs_list:
+                    if block_output is not None and block_output.ndim > 1:
+                        stage_cls_tokens_list.append(block_output[:, 0])
             cls_token_lists_by_stage[stage_key] = stage_cls_tokens_list
 
         return cls_token_lists_by_stage

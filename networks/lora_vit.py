@@ -184,8 +184,7 @@ class LoRADetector(nn.Module):
         x = self.base_model.pos_drop(x)
 
         num_blocks = len(self.base_model.blocks)
-        outputs_by_stage: Dict[str, List[Optional[torch.Tensor]]] = \
-            {f'stage_{s}': [None] * num_blocks for s in range(self.num_stages)}
+        outputs_by_stage = {f'stage_{s}': [None] * num_blocks for s in range(self.current_stage+1)}
 
         current_input = x
         for block_idx, blk in enumerate(self.base_model.blocks):
@@ -193,10 +192,7 @@ class LoRADetector(nn.Module):
                 x_base_output, block_stage_outputs_dict = blk(current_input)
                 current_input = x_base_output
                 for stage_key, stage_block_output in block_stage_outputs_dict.items():
-                    if stage_key in outputs_by_stage:
-                        outputs_by_stage[stage_key][block_idx] = stage_block_output
-                    else:
-                        print(f"警告: 在 Block {block_idx} 中遇到意外的阶段键 '{stage_key}'。已忽略。")
+                    outputs_by_stage[stage_key][block_idx] = stage_block_output
             else:
                 current_input = blk(current_input)
 

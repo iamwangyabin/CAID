@@ -168,5 +168,4 @@ class ParallelDynamicLoRAAttention(nn.Module):
                 else:
                     print(f"警告: 在并行计算中未找到 Stage key {stage_key} 对应的 LoRA 层。")
 
-        # 返回原始注意力输出和所有激活阶段的 LoRA 输出
         return x_base_attn_proj, stage_outputs

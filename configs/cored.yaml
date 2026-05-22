@@ -1,0 +1,6 @@
+_base_: _base_feature.yaml
+method:
+  name: cored
+  kd_weight: 1.0
+  feature_kd_weight: 1.0
+  temperature: 2.0

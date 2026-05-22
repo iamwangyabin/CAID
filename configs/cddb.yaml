@@ -1,0 +1,6 @@
+_base_: _base_feature.yaml
+method:
+  name: cddb
+  binary_loss: sum_b_log
+  memory_size: 1500
+  memory_batch_size: 32

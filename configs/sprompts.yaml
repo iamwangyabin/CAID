@@ -1,0 +1,25 @@
+_base_: _base_image.yaml
+output_dir: outputs/sprompts_official
+scenario:
+  transform:
+    preset: clip
+method:
+  name: sprompts
+  implementation: official
+  net_type: slip
+  prompt_length: 10
+  num_centers: 5
+  class_names: [real, fake]
+  n_ctx: 16
+  backbone:
+    type: open_clip
+    model_name: ViT-B-16
+    pretrained: openai
+  train_backbone: false
+  normalize_features: true
+train:
+  optimizer:
+    type: sgd
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 2.0e-4

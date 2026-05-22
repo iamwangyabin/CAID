@@ -1,0 +1,15 @@
+name: toy_dataset_incremental
+# Arrow/manifest storage is not modified. This YAML defines the continual order.
+tasks:
+  - id: d0
+    name: Domain-0
+    numeric_id: 0
+    filter:
+      include:
+        domain: d0
+  - id: d1
+    name: Domain-1
+    numeric_id: 1
+    filter:
+      include:
+        domain: d1

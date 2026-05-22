@@ -1,0 +1,28 @@
+name: sur_lid_p3_deepfakebench_style
+# Expected Arrow metadata columns: dataset, label, split, video_id, manipulation.
+# The underlying Arrow file can be one pooled DeepfakeBench/SUR-LID face-crop table.
+tasks:
+  - id: ffpp
+    name: FF++
+    numeric_id: 0
+    filter:
+      include:
+        dataset: [FF++, FaceForensics++]
+  - id: dfdcp
+    name: DFDCP
+    numeric_id: 1
+    filter:
+      include:
+        dataset: [DFDCP]
+  - id: dfd
+    name: DFD
+    numeric_id: 2
+    filter:
+      include:
+        dataset: [DFD, DeepFakeDetection]
+  - id: cdf
+    name: Celeb-DF
+    numeric_id: 3
+    filter:
+      include:
+        dataset: [Celeb-DF, Celeb-DF-v2, CDF]

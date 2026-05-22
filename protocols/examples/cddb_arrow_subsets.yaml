@@ -1,0 +1,64 @@
+name: cddb_arrow_subsets
+# AID-native CDDB Arrow protocol. The dataset has train/val sidecars, so val is
+# also used as the test split for continual evaluation.
+tasks:
+  - id: biggan
+    name: BigGAN
+    numeric_id: 0
+    filter: {include: {subset: biggan}}
+    test: {split: val, include: {subset: biggan}}
+  - id: crn
+    name: CRN
+    numeric_id: 1
+    filter: {include: {subset: crn}}
+    test: {split: val, include: {subset: crn}}
+  - id: cyclegan
+    name: CycleGAN
+    numeric_id: 2
+    filter: {include: {subset: cyclegan}}
+    test: {split: val, include: {subset: cyclegan}}
+  - id: deepfake
+    name: DeepFake
+    numeric_id: 3
+    filter: {include: {subset: deepfake}}
+    test: {split: val, include: {subset: deepfake}}
+  - id: gaugan
+    name: GauGAN
+    numeric_id: 4
+    filter: {include: {subset: gaugan}}
+    test: {split: val, include: {subset: gaugan}}
+  - id: glow
+    name: Glow
+    numeric_id: 5
+    filter: {include: {subset: glow}}
+    test: {split: val, include: {subset: glow}}
+  - id: imle
+    name: IMLE
+    numeric_id: 6
+    filter: {include: {subset: imle}}
+    test: {split: val, include: {subset: imle}}
+  - id: san
+    name: SAN
+    numeric_id: 7
+    filter: {include: {subset: san}}
+    test: {split: val, include: {subset: san}}
+  - id: stargan_gf
+    name: StarGAN-GF
+    numeric_id: 8
+    filter: {include: {subset: stargan_gf}}
+    test: {split: val, include: {subset: stargan_gf}}
+  - id: stylegan
+    name: StyleGAN
+    numeric_id: 9
+    filter: {include: {subset: stylegan}}
+    test: {split: val, include: {subset: stylegan}}
+  - id: whichfaceisreal
+    name: WhichFaceIsReal
+    numeric_id: 10
+    filter: {include: {subset: whichfaceisreal}}
+    test: {split: val, include: {subset: whichfaceisreal}}
+  - id: wild
+    name: WildDeepfake
+    numeric_id: 11
+    filter: {include: {subset: wild}}
+    test: {split: val, include: {subset: wild}}

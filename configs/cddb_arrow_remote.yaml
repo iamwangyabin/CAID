@@ -1,0 +1,40 @@
+# CDDB Arrow can be fetched from either mirror. Both repositories are expected
+# to contain the same AID/HF Arrow files at the repository root.
+seed: 0
+device: auto
+output_dir: outputs/cddb_arrow_remote
+
+scenario:
+  data:
+    backend: aid_arrow
+    image_column: image
+    remote:
+      # Switch to "modelscope" to use the ModelScope mirror.
+      platform: huggingface
+      repo_ids:
+        huggingface: nebula/CDDB.arrow
+        modelscope: yabinnng/CDDB.arrow
+      local_dir: data/datasets/CDDB.arrow
+      path_in_repo: .
+      max_workers: 16
+  protocol: protocols/examples/cddb_arrow_subsets.yaml
+  transform:
+    size: 224
+    preset: imagenet
+
+train:
+  epochs: 1
+  batch_size: 32
+  num_workers: 4
+  optimizer:
+    type: adamw
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+
+method:
+  name: cddb
+  num_classes: 2
+  detector_cfg:
+    backbone:
+      type: small_conv
+      out_dim: 512

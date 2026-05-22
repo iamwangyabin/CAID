@@ -1,0 +1,33 @@
+name: deepfakebench_dataset_incremental
+# One pooled Arrow table, different dataset filters define tasks.
+tasks:
+  - id: ffpp
+    name: FF++
+    numeric_id: 0
+    filter:
+      include:
+        dataset: [FF++, FaceForensics++]
+  - id: celebdf
+    name: Celeb-DF-v2
+    numeric_id: 1
+    filter:
+      include:
+        dataset: [Celeb-DF, Celeb-DF-v2, CDF]
+  - id: dfdcp
+    name: DFDCP
+    numeric_id: 2
+    filter:
+      include:
+        dataset: [DFDCP]
+  - id: dfdc
+    name: DFDC
+    numeric_id: 3
+    filter:
+      include:
+        dataset: [DFDC]
+  - id: wilddeepfake
+    name: WildDeepfake
+    numeric_id: 4
+    filter:
+      include:
+        dataset: [WildDeepfake]

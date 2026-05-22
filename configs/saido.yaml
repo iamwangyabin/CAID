@@ -1,0 +1,9 @@
+_base_: _base_feature.yaml
+method:
+  name: saido
+  lora_rank: 8
+  lora_alpha: 16.0
+  freeze_backbone: false
+  importance_quantile: 0.8
+  core_grad_scale: 0.1
+  noncore_grad_scale: 1.0

@@ -1,0 +1,8 @@
+_base_: _base_feature.yaml
+method:
+  name: sur_lid
+  memory_size: 1500
+  memory_batch_size: 32
+  kd_weight: 1.0
+  isolation_weight: 0.1
+  alignment_weight: 0.1

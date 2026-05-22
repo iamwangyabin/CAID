@@ -1,0 +1,9 @@
+_base_: _base_feature.yaml
+method:
+  name: ca_adapter_cail
+  adapter_bottleneck: 32
+  shuffle_grid: 4
+  shuffle_weight: 0.5
+  align_weight: 0.1
+  kd_weight: 1.0
+  structure_kd_weight: 0.5

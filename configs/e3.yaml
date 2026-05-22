@@ -1,0 +1,9 @@
+_base_: _base_feature.yaml
+method:
+  name: e3
+  memory_size: 1000
+  memory_batch_size: 32
+  max_experts: 64
+  ekfn_layers: 2
+  ekfn_heads: 4
+  ekfn_hidden: 512

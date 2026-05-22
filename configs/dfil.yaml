@@ -1,0 +1,9 @@
+_base_: _base_feature.yaml
+method:
+  name: dfil
+  memory_size: 1500
+  memory_batch_size: 32
+  supcon_weight: 0.1
+  kd_weight: 1.0
+  feature_kd_weight: 1.0
+  hard_ratio: 0.5

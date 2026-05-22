@@ -1,0 +1,24 @@
+# Generic protocol for AID-native Arrow datasets.
+# Replace subset names with those found in your AID train.json/test.json.
+# AID split JSON format is:
+#   {"subset_name": {"relative/path.jpg": label, ...}}
+# CAIDBench exposes membership as metadata field `subset`.
+name: aid_subset_incremental
+
+tasks:
+  - id: task0
+    name: AID subset task 0
+    numeric_id: 0
+    filter:
+      include:
+        subset: task0        # e.g., sd15, fakecoco, generator:SDv4, all
+    # Optional: override split/subset per split.
+    # train: {split: train, include: {subset: task0}}
+    # test:  {split: test, include: {subset: task0}}
+
+  - id: task1
+    name: AID subset task 1
+    numeric_id: 1
+    filter:
+      include:
+        subset: task1

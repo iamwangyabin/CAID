@@ -1,0 +1,8 @@
+_base_: _base_feature.yaml
+method:
+  name: hdp
+  epsilon: 0.05
+  uap_shape: [64]
+  kd_weight: 1.0
+  real_kd_weight: 1.0
+  adv_kd_weight: 1.0

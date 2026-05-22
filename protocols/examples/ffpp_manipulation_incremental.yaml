@@ -1,0 +1,31 @@
+name: ffpp_manipulation_incremental_deepfakebench_style
+# Expected metadata: dataset in [FF++, FaceForensics++], manipulation.
+tasks:
+  - id: deepfakes
+    name: Deepfakes
+    numeric_id: 0
+    filter:
+      include:
+        dataset: [FF++, FaceForensics++]
+        manipulation: [Deepfakes]
+  - id: face2face
+    name: Face2Face
+    numeric_id: 1
+    filter:
+      include:
+        dataset: [FF++, FaceForensics++]
+        manipulation: [Face2Face]
+  - id: faceswap
+    name: FaceSwap
+    numeric_id: 2
+    filter:
+      include:
+        dataset: [FF++, FaceForensics++]
+        manipulation: [FaceSwap]
+  - id: neuraltextures
+    name: NeuralTextures
+    numeric_id: 3
+    filter:
+      include:
+        dataset: [FF++, FaceForensics++]
+        manipulation: [NeuralTextures]

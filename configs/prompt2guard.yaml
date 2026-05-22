@@ -1,0 +1,35 @@
+_base_: _base_image.yaml
+output_dir: outputs/prompt2guard
+scenario:
+  transform:
+    size: 224
+    preset: imagenet
+train:
+  epochs: 20
+  batch_size: 2
+  optimizer:
+    type: sgd
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0002
+method:
+  name: prompt2guard
+  model_name: ViT-B-16
+  pretrained: openai
+  K: 7
+  topk_classes: 5
+  ensembling: [false, false, true, false]
+  prototype: fake
+  prediction_mode: mix_top_mean
+  n_clusters: 5
+  label_smoothing: 0.1
+  # Optional official Prompt2Guard sidecar. When set, object labels are loaded
+  # from classes.pkl by matching batch["path"] against this mapping.
+  object_label_sidecar: null
+  object_label_root: null
+  init_lr: 0.01
+  lrate: 0.01
+  init_weight_decay: 0.0005
+  weight_decay: 0.0002
+  warmup_epoch: 1
+  warmup_lr: 1.0e-5

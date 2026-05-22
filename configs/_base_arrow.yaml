@@ -1,0 +1,30 @@
+seed: 0
+device: auto
+output_dir: outputs/arrow_run
+scenario:
+  data:
+    backend: arrow
+    # AID-style dataset directory produced by caid-pack-dataset/caid-pack-arrow.
+    # The Arrow/HF payload has one column: image. Metadata is in index.jsonl.
+    path: data/arrow/dataset
+    image_column: image
+    path_column: null
+    root_dir: null
+  protocol: protocols/examples/toy_incremental.yaml
+  transform:
+    size: 224
+    preset: imagenet
+train:
+  epochs: 1
+  batch_size: 32
+  num_workers: 4
+  optimizer:
+    type: adamw
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+method:
+  name: finetune
+  detector_cfg:
+    backbone:
+      type: small_conv
+      out_dim: 512

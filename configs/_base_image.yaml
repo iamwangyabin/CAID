@@ -1,0 +1,25 @@
+seed: 0
+device: auto
+output_dir: outputs/image_run
+scenario:
+  data:
+    backend: manifest
+    path: data/manifest.csv
+    root: null
+  transform:
+    size: 224
+    preset: imagenet
+train:
+  epochs: 1
+  batch_size: 32
+  num_workers: 4
+  optimizer:
+    type: adamw
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+method:
+  num_classes: 2
+  detector_cfg:
+    backbone:
+      type: small_conv
+      out_dim: 512

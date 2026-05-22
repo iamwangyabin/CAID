@@ -1,0 +1,25 @@
+_base_: _base_image.yaml
+output_dir: outputs/hsic_debug
+scenario:
+  data:
+    backend: manifest
+    path: data/manifest.csv
+    root: null
+  transform:
+    size: 64
+    preset: imagenet
+train:
+  epochs: 1
+  batch_size: 8
+  num_workers: 0
+method:
+  name: hsic_bottleneck
+  hsic_weight: 0.2
+  label_hsic_weight: 0.0
+  memory_size: 64
+  memory_batch_size: 8
+  kd_weight: 0.2
+  detector_cfg:
+    backbone:
+      type: small_conv
+      out_dim: 128

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caidbench"
+version = "0.1.0"
+description = "A flexible benchmark framework for continual AI-generated/deepfake image detection."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "CAIDBench contributors"}]
+dependencies = [
+  "torch>=1.13",
+  "numpy>=1.23",
+  "pandas>=1.5",
+  "Pillow>=9.0",
+  "PyYAML>=6.0",
+  "scikit-learn>=1.2",
+]
+
+[project.optional-dependencies]
+clip = ["transformers>=4.40", "open_clip_torch>=2.24"]
+sprompts = ["timm>=0.9", "open_clip_torch>=2.24"]
+arrow = ["pyarrow>=15", "datasets>=2.18"]
+hub = ["huggingface_hub>=0.23", "modelscope>=1.16"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+caid-train = "caidbench.cli.train:main"
+caid-eval = "caidbench.cli.evaluate:main"
+caid-make-manifest = "caidbench.cli.make_manifest:main"
+caid-pack-arrow = "caidbench.cli.pack_arrow:main"
+caid-pack-dataset = "caidbench.cli.pack_dataset:main"
+caid-inspect-aid = "caidbench.cli.inspect_aid:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["caidbench*"]

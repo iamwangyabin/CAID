@@ -1,0 +1,26 @@
+_base_: _base_image.yaml
+output_dir: outputs/hsic_online_clip
+scenario:
+  data:
+    backend: manifest
+    path: data/manifest.csv
+    root: null
+  transform:
+    size: 224
+    preset: clip
+method:
+  name: hsic_bottleneck
+  hsic_weight: 1.0
+  label_hsic_weight: 0.0
+  memory_size: 1500
+  memory_batch_size: 32
+  kd_weight: 0.5
+  detector_cfg:
+    backbone:
+      type: clip_vision
+      backend: open_clip
+      model_name: ViT-L-14
+      pretrained: openai
+      freeze: true
+      out_dim: 768
+      normalize: true

@@ -1,0 +1,3 @@
+_base_: _base_feature.yaml
+method:
+  name: finetune

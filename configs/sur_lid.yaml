@@ -74,6 +74,9 @@ method:
   replay_mode: sparse_robust
   feat_aug: true
   feat_aug_v: random
+  require_official_feature_dim: true
+  official_feature_dim: 1792
+  require_backbone_checkpoint: true
   train_shuf_p: 0.0
   protocol: P1
   sup_task_weight: 0.0

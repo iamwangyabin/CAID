@@ -27,16 +27,19 @@ class E3Method(ContinualMethod):
         self,
         memory_size: int = 1000,
         memory_batch_size: int = 32,
+        replay_group_key: str = "label",
         ekfn_layers: int = 2,
         ekfn_heads: int = 4,
         ekfn_hidden: int = 512,
+        ekfn_dropout: float = 0.0,
+        ekfn_activation: str = "gelu",
         max_experts: int = 64,
         expert_epochs: int | None = None,
         ekfn_epochs: int | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
-        self.memory = ReplayBuffer(memory_size, balanced=True, group_key="label")
+        self.memory = ReplayBuffer(memory_size, balanced=True, group_key=replay_group_key)
         self.memory_batch_size = int(memory_batch_size)
         self.expert_epochs = expert_epochs
         self.ekfn_epochs = ekfn_epochs
@@ -48,6 +51,8 @@ class E3Method(ContinualMethod):
             transformer_layers=ekfn_layers,
             nhead=ekfn_heads,
             mlp_hidden=ekfn_hidden,
+            dropout=ekfn_dropout,
+            activation=ekfn_activation,
         )
 
     def _expert_embeddings(self, x: torch.Tensor) -> torch.Tensor:

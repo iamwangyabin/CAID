@@ -45,6 +45,7 @@ class HDPMethod(ContinualMethod):
         clamp_max: float = 1.0,
         real_label: int = 0,
         fake_label: int = 1,
+        binary_sigmoid: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -67,6 +68,7 @@ class HDPMethod(ContinualMethod):
         self.clamp_max = float(clamp_max)
         self.real_label = int(real_label)
         self.fake_label = int(fake_label)
+        self.binary_sigmoid = bool(binary_sigmoid)
         self.teacher: nn.Module | None = None
         self.uap_shape = tuple(int(x) for x in uap_shape) if uap_shape is not None else None
         self.register_buffer("uap_pool", torch.empty(0), persistent=True)
@@ -156,6 +158,31 @@ class HDPMethod(ContinualMethod):
     def _zero_like_loss(self, ref: torch.Tensor) -> torch.Tensor:
         return ref.new_tensor(0.0)
 
+    def _fake_logit(self, logits: torch.Tensor) -> torch.Tensor:
+        if logits.shape[-1] == 1:
+            return logits.squeeze(-1)
+        return logits[:, self.fake_label] - logits[:, self.real_label]
+
+    def _two_class_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        if not self.binary_sigmoid:
+            return logits
+        fake = self._fake_logit(logits)
+        return torch.stack([-fake, fake], dim=-1)
+
+    def _classification_loss(self, logits: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        if not self.binary_sigmoid:
+            return F.cross_entropy(logits, y.long())
+        target = y.eq(self.fake_label).to(dtype=logits.dtype)
+        return F.binary_cross_entropy_with_logits(self._fake_logit(logits), target)
+
+    def predict(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:
+        x = batch["x"].to(self.device)
+        out = self.detector(x)
+        if self.binary_sigmoid:
+            out = dict(out)
+            out["logits"] = self._two_class_logits(out["logits"])
+        return out
+
     def observe(self, batch: dict[str, Any], task: Any | None = None) -> dict[str, torch.Tensor]:
         batch = batch_to_device(batch, self.device)
         x = batch["x"]
@@ -175,7 +202,7 @@ class HDPMethod(ContinualMethod):
                 pseudo_idx = torch.arange(pseudo_start, train_x.shape[0], device=y.device)
 
         out = self.detector(train_x)
-        ce = F.cross_entropy(out["logits"], train_y)
+        ce = self._classification_loss(out["logits"], train_y)
         loss = ce
         log: dict[str, torch.Tensor] = {"ce": ce.detach(), "uap_count": ce.new_tensor(float(self.uap_count))}
         if self.teacher is not None and pseudo_idx is not None and pseudo_idx.numel() > 0:
@@ -199,11 +226,11 @@ class HDPMethod(ContinualMethod):
                 )
 
             real_logit_kd = (
-                kd_loss(out["logits"][real_idx], teacher_out["logits"][real_idx], self.temperature)
+                kd_loss(self._two_class_logits(out["logits"])[real_idx], self._two_class_logits(teacher_out["logits"])[real_idx], self.temperature)
                 if real_idx.numel() > 0
                 else self._zero_like_loss(loss)
             )
-            pseudo_logit_kd = kd_loss(out["logits"][pseudo_idx], teacher_out["logits"][pseudo_idx], self.temperature)
+            pseudo_logit_kd = kd_loss(self._two_class_logits(out["logits"])[pseudo_idx], self._two_class_logits(teacher_out["logits"])[pseudo_idx], self.temperature)
             real_kd = self.feature_kd_weight * real_feature_kd + self.logit_kd_weight * real_logit_kd
             pseudo_kd = self.feature_kd_weight * pseudo_feature_kd + self.logit_kd_weight * pseudo_logit_kd
             loss = loss + self.real_kd_weight * real_kd + self.adv_kd_weight * pseudo_kd
@@ -301,12 +328,15 @@ class HDPMethod(ContinualMethod):
                         self.detector.zero_grad(set_to_none=True)
                         pseudo_x = self._add_uap(real_x, uap)
                         logits = self.detector(pseudo_x)["logits"]
-                        attack_rate = (logits.argmax(dim=-1) == self.fake_label).float().mean()
+                        if self.binary_sigmoid:
+                            attack_rate = (self._fake_logit(logits) > 0).float().mean()
+                        else:
+                            attack_rate = (logits.argmax(dim=-1) == self.fake_label).float().mean()
                         if float(attack_rate.detach().cpu()) >= self.uap_success_threshold:
                             uap = uap.detach()
                             break
                         target = torch.full((pseudo_x.shape[0],), self.fake_label, device=real_x.device, dtype=torch.long)
-                        loss = F.cross_entropy(logits, target)
+                        loss = self._classification_loss(logits, target)
                         loss.backward()
                         if uap.grad is None:
                             uap = uap.detach()

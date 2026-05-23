@@ -7,3 +7,12 @@ method:
   align_weight: 0.1
   kd_weight: 1.0
   structure_kd_weight: 0.5
+  temperature: 2.0
+  memory_size: 1000
+  memory_batch_size: 32
+  freeze_base: true
+train:
+  optimizer:
+    type: adamw
+    lr: 0.002
+    weight_decay: 0.0002

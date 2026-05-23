@@ -3,7 +3,13 @@ method:
   name: e3
   memory_size: 1000
   memory_batch_size: 32
+  replay_group_key: generator
   max_experts: 64
-  ekfn_layers: 2
-  ekfn_heads: 4
-  ekfn_hidden: 512
+  ekfn_layers: 5
+  ekfn_heads: 8
+  ekfn_hidden: 64
+  ekfn_dropout: 0.5
+  ekfn_activation: relu
+  detector_cfg:
+    backbone:
+      out_dim: 200

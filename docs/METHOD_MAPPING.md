@@ -15,6 +15,7 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 - Adapter-equipped detector with dual original/shuffled views.
 - Token/grid shuffling consistency encourages content-agnostic artifact features.
 - Asymmetric alignment: real features are compacted more strongly, fake generator features are allowed to remain diverse while domain shift is regularized.
+- Official-compatible mode freezes the base backbone, trains adapter/head parameters, and uses exemplar replay.
 - Multi-view KD preserves logits and pairwise feature geometry from the previous model.
 
 ## HSIC Bottleneck + HGR
@@ -32,13 +33,14 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 ## CoReD
 
 - The previous model is kept as teacher.
-- Student loss includes current-task CE, logit KD, and feature/representation KD.
+- Student loss includes current-task CE, logit KD, and official-style confidence-bin representation-memory KD.
 
 ## DFIL
 
 - CE plus supervised contrastive learning for domain-invariant forgery representations.
 - Label-level and feature-level KD from previous model.
 - Replay memory uses central and hard samples.
+- Official memory selection uses low distance-to-class-mean center samples and high-entropy hard samples.
 
 ## Prompt2Guard
 
@@ -61,6 +63,7 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 - After each task, a targeted UAP is generated from current real samples and appended to a persistent UAP pool.
 - During later tasks, a sampled historical UAP is added to current real samples to create pseudo-forged samples with fake labels.
 - Feature-wise KD preserves real and pseudo-forged distributions from the previous detector; optional logit KD follows the official implementation's extra KL-style regularizer.
+- Official mode supports the original single-logit sigmoid/BCELoss detector while exporting two-class logits for CAIDBench evaluation.
 
 ## SUR-LID
 

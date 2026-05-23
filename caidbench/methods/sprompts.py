@@ -166,6 +166,13 @@ class SPromptsMethod(ContinualMethod):
         ctx_init: str = "",
         label_mode: str = "auto",
         routing_metric: str = "official_l1",
+        use_official_schedule: bool = False,
+        init_epoch: int | None = None,
+        init_lr: float | None = None,
+        init_weight_decay: float | None = None,
+        epochs: int | None = None,
+        lrate: float | None = None,
+        weight_decay: float | None = None,
         **kwargs: Any,
     ) -> None:
         detector_cfg = dict(detector_cfg or {})
@@ -189,6 +196,13 @@ class SPromptsMethod(ContinualMethod):
         self.net_type = str(net_type).lower()
         self.label_mode = str(label_mode).lower()
         self.routing_metric = str(routing_metric).lower()
+        self.use_official_schedule = bool(use_official_schedule)
+        self.init_epoch = init_epoch
+        self.init_lr = init_lr
+        self.init_weight_decay = init_weight_decay
+        self.official_epochs = epochs
+        self.lrate = lrate
+        self.weight_decay = weight_decay
         self.current_prompt_key = "task0"
         self._known_classes = 0
 
@@ -268,10 +282,30 @@ class SPromptsMethod(ContinualMethod):
 
     def configure_optimizer(self, optimizer_cfg: dict[str, Any] | None = None) -> torch.optim.Optimizer:
         cfg = dict(optimizer_cfg or {})
+        if self.use_official_schedule:
+            if self.current_task_id == 0:
+                if self.init_lr is not None:
+                    cfg["lr"] = float(self.init_lr)
+                if self.init_weight_decay is not None:
+                    cfg["weight_decay"] = float(self.init_weight_decay)
+            else:
+                if self.lrate is not None:
+                    cfg["lr"] = float(self.lrate)
+                if self.weight_decay is not None:
+                    cfg["weight_decay"] = float(self.weight_decay)
         if self.prompt_lr is not None:
             cfg["lr"] = self.prompt_lr
         cfg.setdefault("lr", 1e-3)
         return build_optimizer(self.parameters(), cfg)
+
+    def _task_epochs(self, trainer: Any) -> int:
+        if not self.use_official_schedule:
+            return int(trainer.max_epochs)
+        if self.current_task_id == 0 and self.init_epoch is not None:
+            return int(self.init_epoch)
+        if self.official_epochs is not None:
+            return int(self.official_epochs)
+        return int(trainer.max_epochs)
 
     def _selector_features(self, z: torch.Tensor) -> torch.Tensor:
         z = z.float()
@@ -363,6 +397,48 @@ class SPromptsMethod(ContinualMethod):
         logits = self._head_logits(z, self.current_prompt_key)
         loss = F.cross_entropy(logits, self._local_targets(batch["y"]))
         return {"loss": loss, "ce": loss.detach()}
+
+    def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
+        if not self.use_official_schedule:
+            return False
+        self.train()
+        optimizer = self.configure_optimizer(getattr(trainer, "optimizer_cfg", None))
+        epochs = self._task_epochs(trainer)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+        for epoch in range(epochs):
+            totals: dict[str, float] = {}
+            n = 0
+            for batch in train_loader:
+                out = self.observe(batch, task)
+                optimizer.zero_grad(set_to_none=True)
+                out["loss"].backward()
+                if trainer.grad_clip:
+                    torch.nn.utils.clip_grad_norm_(self.parameters(), trainer.grad_clip)
+                optimizer.step()
+                trainer.advance_step()
+                for key, value in out.items():
+                    if torch.is_tensor(value) and value.ndim == 0:
+                        totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
+                n += 1
+            scheduler.step()
+            if totals:
+                metrics = {k: v / max(n, 1) for k, v in totals.items()}
+                trainer.logger.info(
+                    "task=%s epoch=%d/%d %s",
+                    task.name,
+                    epoch + 1,
+                    epochs,
+                    ", ".join(f"{k}={v:.4f}" for k, v in metrics.items()),
+                )
+                trainer.log_metrics(
+                    {
+                        **{f"train/{k}": v for k, v in metrics.items()},
+                        "train/task_index": float(getattr(task, "task_id", 0)),
+                        "train/epoch": epoch + 1,
+                        "train/lr": float(optimizer.param_groups[0]["lr"]),
+                    }
+                )
+        return True
 
     def _cluster_features(self, features: torch.Tensor) -> torch.Tensor:
         features = self._selector_features(features).detach().cpu()

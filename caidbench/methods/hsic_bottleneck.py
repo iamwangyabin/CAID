@@ -29,6 +29,8 @@ class HSICBottleneckMethod(ContinualMethod):
         self,
         hsic_weight: float = 1.0,
         label_hsic_weight: float = 0.0,
+        nuisance_hsic_weight: float = 1.0,
+        hgr_lambda_kc: float = 0.5,
         memory_size: int = 1500,
         memory_batch_size: int = 32,
         kd_weight: float = 0.5,
@@ -38,6 +40,8 @@ class HSICBottleneckMethod(ContinualMethod):
         super().__init__(**kwargs)
         self.hsic_weight = float(hsic_weight)
         self.label_hsic_weight = float(label_hsic_weight)
+        self.nuisance_hsic_weight = float(nuisance_hsic_weight)
+        self.hgr_lambda_kc = float(hgr_lambda_kc)
         self.memory = ReplayBuffer(memory_size, balanced=True, group_key="label")
         self.memory_batch_size = int(memory_batch_size)
         self.kd_weight = float(kd_weight)
@@ -68,7 +72,13 @@ class HSICBottleneckMethod(ContinualMethod):
         ce = F.cross_entropy(out["logits"], y)
         y_onehot = F.one_hot(y, num_classes=self.num_classes).float()
         nuisance = self._nuisance_ids(train_batch, self.device)
-        hsic_loss = hsic_bottleneck_loss(out["features"], y_onehot, nuisances=[nuisance], lambda_label=self.label_hsic_weight, lambda_nuisance=1.0)
+        hsic_loss = hsic_bottleneck_loss(
+            out["features"],
+            y_onehot,
+            nuisances=[nuisance],
+            lambda_label=self.label_hsic_weight,
+            lambda_nuisance=self.nuisance_hsic_weight,
+        )
         loss = ce + self.hsic_weight * hsic_loss
         log: dict[str, torch.Tensor] = {"ce": ce.detach(), "hsic": hsic_loss.detach()}
         if self.teacher is not None and mem:
@@ -91,6 +101,6 @@ class HSICBottleneckMethod(ContinualMethod):
                 nuisance_rows.append(self._nuisance_to_id[key])
             nuisance = torch.tensor(nuisance_rows, dtype=torch.long) if nuisance_rows else None
             quota = max(self.memory.capacity // max((int(getattr(task, "task_id", 0)) + 1), 1), 1)
-            idx = hsic_guided_indices(feat, labels, nuisance, min(quota, len(rows)))
+            idx = hsic_guided_indices(feat, labels, nuisance, min(quota, len(rows)), lambda_kc=self.hgr_lambda_kc)
             self.memory.replace(list(self.memory.samples) + [rows[i] for i in idx])
         self.teacher = self.frozen_detector_copy()

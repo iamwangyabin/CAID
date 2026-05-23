@@ -138,11 +138,19 @@ class SURLIDMethod(ContinualMethod):
         protocol: str = "P1",
         classifier_ensemble: str = "mean",
         backbone_checkpoint: str | None = None,
+        require_official_feature_dim: bool = False,
+        official_feature_dim: int = 1792,
+        require_backbone_checkpoint: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(detector_cfg=detector_cfg, num_classes=num_classes, **kwargs)
         self.detector.head.requires_grad_(False)
         self.feature_dim = self._infer_feature_dim()
+        if require_official_feature_dim and self.feature_dim != int(official_feature_dim):
+            raise ValueError(
+                f"SUR-LID official mode expects EfficientNet-B4 feature_dim={int(official_feature_dim)}, "
+                f"got {self.feature_dim}. Check detector_cfg.backbone and projection settings."
+            )
         self.max_tasks = int(max_tasks)
         self.heads = nn.ModuleList([OfficialLogisticRegression(self.feature_dim, self.num_classes) for _ in range(self.max_tasks)])
         self.teacher_backbone: nn.Module | None = None
@@ -174,6 +182,8 @@ class SURLIDMethod(ContinualMethod):
         ckpt = backbone_checkpoint
         if ckpt is None and isinstance(detector_cfg, dict):
             ckpt = (detector_cfg.get("backbone", {}) or {}).get("pretrained_path")
+        if require_backbone_checkpoint and not ckpt:
+            raise ValueError("SUR-LID official mode requires backbone_checkpoint or detector_cfg.backbone.pretrained_path.")
         if ckpt:
             self._load_backbone_checkpoint(ckpt)
 

@@ -3,13 +3,33 @@ seed: 1234
 output_dir: outputs/hdp_efficientnet_b4
 scenario:
   transform:
-    trsf:
-      - _target_: caidbench.data.transforms.SquareResize
-        size: 224
-      - _target_: caidbench.data.transforms.ToTensor
-      - _target_: caidbench.data.transforms.Normalize
-        mean: [0.5, 0.5, 0.5]
-        std: [0.5, 0.5, 0.5]
+    train:
+      trsf:
+        - _target_: caidbench.data.transforms.SquareResize
+          size: 224
+        - _target_: caidbench.data.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: caidbench.data.transforms.DataAugment
+          blur_prob: 0.5
+          blur_sig: [0, 3]
+          jpg_prob: 0.5
+          jpg_method: [pil]
+          jpg_qual: [60, 100]
+        - _target_: caidbench.data.transforms.ColorJitter
+          brightness: [0.9, 1.1]
+          contrast: [0.9, 1.1]
+        - _target_: caidbench.data.transforms.ToTensor
+        - _target_: caidbench.data.transforms.Normalize
+          mean: [0.5, 0.5, 0.5]
+          std: [0.5, 0.5, 0.5]
+    test:
+      trsf:
+        - _target_: caidbench.data.transforms.SquareResize
+          size: 224
+        - _target_: caidbench.data.transforms.ToTensor
+        - _target_: caidbench.data.transforms.Normalize
+          mean: [0.5, 0.5, 0.5]
+          std: [0.5, 0.5, 0.5]
 train:
   epochs: 20
   batch_size: 64
@@ -24,6 +44,7 @@ train:
 method:
   name: hdp
   num_classes: 2
+  binary_sigmoid: true
   epsilon: 0.15
   uap_shape: [3, 224, 224]
   uap_alpha: 0.0001
@@ -38,10 +59,10 @@ method:
   clamp_min: -1.0
   clamp_max: 1.0
   detector_cfg:
-    num_classes: 2
+    num_classes: 1
     backbone:
       type: timm
       name: tf_efficientnet_b4_ns
       pretrained: true
-      out_dim: 128
+      out_dim: null
       drop_rate: 0.2

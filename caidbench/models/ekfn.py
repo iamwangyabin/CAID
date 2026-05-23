@@ -12,15 +12,26 @@ class ExpertKnowledgeFusionNetwork(nn.Module):
     gated embeddings are flattened and fed to a two-layer MLP.
     """
 
-    def __init__(self, embed_dim: int, max_experts: int = 64, num_classes: int = 2, transformer_layers: int = 2, nhead: int = 4, mlp_hidden: int = 512, dropout: float = 0.0) -> None:
+    def __init__(
+        self,
+        embed_dim: int,
+        max_experts: int = 64,
+        num_classes: int = 2,
+        transformer_layers: int = 2,
+        nhead: int = 4,
+        mlp_hidden: int = 512,
+        dropout: float = 0.0,
+        activation: str = "gelu",
+    ) -> None:
         super().__init__()
         self.embed_dim = int(embed_dim)
         self.max_experts = int(max_experts)
         enc_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=nhead, dim_feedforward=max(embed_dim * 4, 128), dropout=dropout, batch_first=True, activation="gelu")
         self.transformer = nn.TransformerEncoder(enc_layer, num_layers=transformer_layers)
         self.pos = nn.Parameter(torch.zeros(1, max_experts, embed_dim))
+        act = nn.ReLU(inplace=True) if str(activation).lower() == "relu" else nn.GELU()
         self.mlp = nn.Sequential(
-            nn.Linear(max_experts * embed_dim, mlp_hidden), nn.GELU(), nn.Dropout(dropout), nn.Linear(mlp_hidden, num_classes)
+            nn.Linear(max_experts * embed_dim, mlp_hidden), act, nn.Dropout(dropout), nn.Linear(mlp_hidden, num_classes)
         )
 
     def forward(self, expert_embeddings: torch.Tensor) -> torch.Tensor:

@@ -28,6 +28,10 @@ class SAIDOMethod(ContinualMethod):
         core_grad_scale: float = 0.1,
         noncore_grad_scale: float = 1.0,
         contrast_weight: float = 0.05,
+        scene_prompt_weight: float = 0.0,
+        scene_temperature: float = 0.07,
+        idom_projection: bool = False,
+        old_grad_scale: float = 1.0,
         importance_batches: int = 20,
         **kwargs: Any,
     ) -> None:
@@ -42,8 +46,13 @@ class SAIDOMethod(ContinualMethod):
         self.core_grad_scale = float(core_grad_scale)
         self.noncore_grad_scale = float(noncore_grad_scale)
         self.contrast_weight = float(contrast_weight)
+        self.scene_prompt_weight = float(scene_prompt_weight)
+        self.scene_temperature = float(scene_temperature)
+        self.idom_projection = bool(idom_projection)
+        self.old_grad_scale = float(old_grad_scale)
         self.importance_batches = int(importance_batches)
         self.importance: dict[str, torch.Tensor] = {}
+        self.gradient_memory: dict[str, torch.Tensor] = {}
 
     def before_task(self, task: Any, train_loader: Any | None = None) -> None:
         super().before_task(task, train_loader)
@@ -83,8 +92,25 @@ class SAIDOMethod(ContinualMethod):
             m = sid_t == s
             if m.sum() > 1:
                 contrast = contrast + (z[m] - z[m].mean(dim=0, keepdim=True)).pow(2).sum(dim=1).mean()
-        loss = ce + self.contrast_weight * contrast
-        return {"loss": loss, "ce": ce.detach(), "scene_compact": contrast.detach()}
+        prompt_contrast = self._scene_prompt_contrast(z, batch)
+        loss = ce + self.contrast_weight * contrast + self.scene_prompt_weight * prompt_contrast
+        return {"loss": loss, "ce": ce.detach(), "scene_compact": contrast.detach(), "scene_prompt": prompt_contrast.detach()}
+
+    def _scene_prompt_contrast(self, image_features: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
+        prompt_features = batch.get("scene_prompt_features", batch.get("scene_text_features"))
+        if prompt_features is None or not torch.is_tensor(prompt_features):
+            return image_features.new_tensor(0.0)
+        prompt_features = prompt_features.to(device=image_features.device, dtype=image_features.dtype)
+        if prompt_features.ndim != 2 or prompt_features.shape != image_features.shape:
+            raise ValueError(
+                "SAIDO scene_prompt_features must be a tensor with the same [B,D] shape as image features; "
+                f"got {tuple(prompt_features.shape)} vs {tuple(image_features.shape)}."
+            )
+        img = F.normalize(image_features, dim=-1)
+        txt = F.normalize(prompt_features, dim=-1)
+        logits = img @ txt.T / max(self.scene_temperature, 1e-6)
+        target = torch.arange(logits.shape[0], device=logits.device)
+        return 0.5 * (F.cross_entropy(logits, target) + F.cross_entropy(logits.T, target))
 
     def transform_gradients(self, task: Any | None = None) -> None:
         if not self.importance:
@@ -92,6 +118,12 @@ class SAIDOMethod(ContinualMethod):
         for name, p in self.named_parameters():
             if p.grad is None or name not in self.importance:
                 continue
+            if self.idom_projection and name in self.gradient_memory:
+                ref = self.gradient_memory[name].to(device=p.grad.device, dtype=p.grad.dtype)
+                denom = ref.pow(2).sum().clamp_min(1e-12)
+                parallel = (p.grad * ref).sum() / denom * ref
+                orthogonal = p.grad - parallel
+                p.grad.copy_(orthogonal + self.old_grad_scale * parallel)
             imp = self.importance[name].to(p.grad.device)
             if imp.numel() == 0:
                 continue
@@ -104,6 +136,7 @@ class SAIDOMethod(ContinualMethod):
         if train_loader is None:
             return
         accum: dict[str, torch.Tensor] = {}
+        grad_accum: dict[str, torch.Tensor] = {}
         self.train()
         for i, batch in enumerate(train_loader):
             if i >= self.importance_batches:
@@ -117,8 +150,16 @@ class SAIDOMethod(ContinualMethod):
                 if p.grad is None:
                     continue
                 accum[name] = accum.get(name, torch.zeros_like(p.grad.detach())) + p.grad.detach().pow(2).cpu()
+                grad_accum[name] = grad_accum.get(name, torch.zeros_like(p.grad.detach())) + p.grad.detach().cpu()
         self.zero_grad(set_to_none=True)
         if accum:
             for k, v in accum.items():
                 old = self.importance.get(k)
                 self.importance[k] = v if old is None else 0.5 * old + 0.5 * v
+        if grad_accum:
+            for k, v in grad_accum.items():
+                norm = v.norm().clamp_min(1e-12)
+                old = self.gradient_memory.get(k)
+                direction = v / norm
+                mixed = direction if old is None else 0.5 * old + 0.5 * direction
+                self.gradient_memory[k] = mixed / mixed.norm().clamp_min(1e-12)

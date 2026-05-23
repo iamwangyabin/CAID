@@ -57,15 +57,18 @@ def test_hdp_generates_persistent_uap_pool_and_replays_pseudo_features():
 def test_hdp_default_config_matches_official_backbone_and_uap_hyperparams():
     cfg = load_config("configs/hdp.yaml")
 
-    assert cfg["scenario"]["transform"]["trsf"][0]["size"] == 224
-    assert cfg["scenario"]["transform"]["trsf"][2]["mean"] == [0.5, 0.5, 0.5]
+    assert cfg["scenario"]["transform"]["train"]["trsf"][0]["size"] == 224
+    assert cfg["scenario"]["transform"]["train"]["trsf"][-1]["mean"] == [0.5, 0.5, 0.5]
+    assert cfg["scenario"]["transform"]["test"]["trsf"][-1]["std"] == [0.5, 0.5, 0.5]
     assert cfg["train"]["optimizer"]["type"] == "adam"
     assert cfg["train"]["optimizer"]["lr"] == 0.0002
     assert cfg["train"]["lr_scheduler"] == "step"
+    assert cfg["method"]["binary_sigmoid"] is True
     assert cfg["method"]["epsilon"] == 0.15
     assert cfg["method"]["uap_alpha"] == 0.0001
     assert cfg["method"]["uap_success_threshold"] == 0.8
     assert cfg["method"]["uap_shape"] == [3, 224, 224]
+    assert cfg["method"]["detector_cfg"]["num_classes"] == 1
     assert cfg["method"]["detector_cfg"]["backbone"]["name"] == "tf_efficientnet_b4_ns"
-    assert cfg["method"]["detector_cfg"]["backbone"]["out_dim"] == 128
+    assert cfg["method"]["detector_cfg"]["backbone"]["out_dim"] is None
     assert cfg["method"]["detector_cfg"]["backbone"]["drop_rate"] == 0.2

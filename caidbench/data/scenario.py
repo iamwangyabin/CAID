@@ -111,9 +111,33 @@ class ContinualScenario:
         idx: list[int] = []
         for task_index in range(upto_index + 1):
             idx.extend(self._split_indices.get((task_index, split), []))
-        return self.source.make_dataset(idx, transform_cfg=self.transform_cfg, task_id=-1, task_name=f"seen_until_{upto_index}")
+        return self.source.make_dataset(
+            idx,
+            transform_cfg=self._transform_for_split(split),
+            task_id=-1,
+            task_name=f"seen_until_{upto_index}",
+        )
 
     def task_dataset(self, split: str, task_index: int) -> Dataset:
         task = self.tasks[task_index]
         idx = self._split_indices.get((task_index, split), [])
-        return self.source.make_dataset(idx, transform_cfg=self.transform_cfg, task_id=task.task_id, task_name=task.name)
+        return self.source.make_dataset(
+            idx,
+            transform_cfg=self._transform_for_split(split),
+            task_id=task.task_id,
+            task_name=task.name,
+        )
+
+    def _transform_for_split(self, split: str) -> Any:
+        cfg = self.transform_cfg
+        if not isinstance(cfg, Mapping):
+            return cfg
+        if split in cfg:
+            return cfg[split]
+        if split == "val" and "test" in cfg:
+            return cfg["test"]
+        if split in {"val", "test"} and "eval" in cfg:
+            return cfg["eval"]
+        if "default" in cfg:
+            return cfg["default"]
+        return cfg

@@ -319,7 +319,7 @@ class SliNet(nn.Module):
         if x.shape[1] != self.clip_model.visual.positional_embedding.shape[0]:
             raise ValueError(
                 "Prompt2Guard official CLIP path expects 224x224 images for ViT-B/16. "
-                "Use scenario.transform.size=224."
+                "Use a YAML transform ending in a 224x224 crop or resize."
             )
         x = x + self.clip_model.visual.positional_embedding.to(device=self.device, dtype=self.dtype)
         x = torch.cat([x, image_prompt], dim=1)

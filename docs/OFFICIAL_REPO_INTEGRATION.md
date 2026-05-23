@@ -23,7 +23,7 @@ Use `method.name=ca_adapter_cail`. Replace the default backbone with ViT/Xceptio
 
 ## HSIC Bottleneck
 
-Use raw image manifests and online CLIP extraction. Set `method.name=hsic_bottleneck`, `scenario.transform.preset=clip`, and `method.detector_cfg.backbone.type=clip_vision`. The default config uses frozen OpenAI CLIP ViT-L/14 through `open_clip_torch`, so install the optional dependencies with `pip install -e .[clip]`. Put generator IDs in the manifest `generator` column and caption-alignment/domain IDs in custom columns if you extend `HSICBottleneckMethod._nuisance_ids`.
+Use raw image manifests and online CLIP extraction. Set `method.name=hsic_bottleneck`, use a YAML transform list with CLIP mean/std normalization, and set `method.detector_cfg.backbone.type=clip_vision`. The default config uses frozen OpenAI CLIP ViT-L/14 through `open_clip_torch`, so install the optional dependencies with `pip install -e .[clip]`. Put generator IDs in the manifest `generator` column and caption-alignment/domain IDs in custom columns if you extend `HSICBottleneckMethod._nuisance_ids`.
 
 The previous offline feature path is now only a compatibility fallback: use `backbone.type=identity` only when intentionally benchmarking saved `.npy` tensors, not for the default HSIC reproduction route.
 

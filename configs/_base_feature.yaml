@@ -6,8 +6,6 @@ scenario:
     backend: manifest
     path: data/manifest.csv
     root: null
-  transform:
-    size: 224
 train:
   epochs: 1
   batch_size: 32

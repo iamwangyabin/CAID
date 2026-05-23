@@ -12,6 +12,20 @@ from caidbench.engine import Trainer
 from caidbench.registry import list_methods
 
 
+def image_transform(size: int) -> dict:
+    return {
+        "trsf": [
+            {"_target_": "caidbench.data.transforms.SquareResize", "size": size},
+            {"_target_": "caidbench.data.transforms.ToTensor"},
+            {
+                "_target_": "caidbench.data.transforms.Normalize",
+                "mean": [0.485, 0.456, 0.406],
+                "std": [0.229, 0.224, 0.225],
+            },
+        ]
+    }
+
+
 def make_manifest(root: Path, dim: int = 16, tasks: int = 2) -> Path:
     rows = []
     rng = np.random.default_rng(0)
@@ -103,7 +117,7 @@ def test_sprompts_prompt_token_sip_smoke(tmp_path):
         "device": "cpu",
         "output_dir": str(tmp_path / "out_sprompts_sip"),
         "logging": {"backend": "none"},
-        "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}, "transform": {"size": 16}},
+        "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}, "transform": image_transform(16)},
         "train": {"epochs": 1, "batch_size": 2, "num_workers": 0, "optimizer": {"type": "sgd", "lr": 1e-2}},
         "method": {
             "name": "sprompts",
@@ -145,7 +159,7 @@ def test_hsic_online_image_smoke(tmp_path):
         "device": "cpu",
         "output_dir": str(tmp_path / "out_hsic_online"),
         "logging": {"backend": "none"},
-        "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}, "transform": {"size": 16}},
+        "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}, "transform": image_transform(16)},
         "train": {"epochs": 1, "batch_size": 2, "num_workers": 0, "optimizer": {"type": "adamw", "lr": 1e-3}},
         "method": {
             "name": "hsic_bottleneck",

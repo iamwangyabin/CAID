@@ -86,8 +86,13 @@ scenario:
     image_column: image
   protocol: protocols/examples/sur_lid_p3.yaml
   transform:
-    size: 224
-    preset: imagenet
+    trsf:
+      - _target_: caidbench.data.transforms.SquareResize
+        size: 224
+      - _target_: caidbench.data.transforms.ToTensor
+      - _target_: caidbench.data.transforms.Normalize
+        mean: [0.485, 0.456, 0.406]
+        std: [0.229, 0.224, 0.225]
 ```
 
 Pack a processed dataset into AID-style Arrow:

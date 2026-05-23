@@ -6,8 +6,13 @@ scenario:
     path: data/manifest.csv
     root: null
   transform:
-    size: 224
-    preset: clip
+    trsf:
+      - _target_: caidbench.data.transforms.SquareResize
+        size: 224
+      - _target_: caidbench.data.transforms.ToTensor
+      - _target_: caidbench.data.transforms.Normalize
+        mean: [0.48145466, 0.4578275, 0.40821073]
+        std: [0.26862954, 0.26130258, 0.27577711]
 method:
   name: hsic_bottleneck
   hsic_weight: 1.0

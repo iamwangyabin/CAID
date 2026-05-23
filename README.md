@@ -34,6 +34,24 @@ Train a method:
 caid-train --config configs/dfil.yaml
 ```
 
+Training logs to SwanLab by default. Log in once before cloud runs:
+
+```bash
+swanlab login -k <api-key>
+```
+
+You can override the SwanLab project or mode in any config:
+
+```yaml
+logging:
+  backend: swanlab
+  project: CAIDBench
+  mode: cloud
+```
+
+For local smoke tests or runs without experiment tracking, set
+`logging.backend=none`.
+
 A minimal manifest contains:
 
 ```text

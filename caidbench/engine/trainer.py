@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -15,6 +15,7 @@ from ..evaluation import ContinualMetricMatrix, summarize_logits
 from ..methods.base import build_optimizer
 from ..registry import build_method
 from ..utils.checkpoint import save_checkpoint
+from ..utils.experiment import build_experiment_logger
 from ..utils.logging import get_logger
 from ..utils.seed import seed_everything
 
@@ -51,6 +52,8 @@ class Trainer:
         self.grad_clip = None if self.grad_clip is None else float(self.grad_clip)
         self.optimizer_cfg = dict(train_cfg.get("optimizer", {"type": "adamw", "lr": 1e-4}))
         self.metric_matrix = ContinualMetricMatrix([t.name for t in self.scenario.tasks])
+        self.global_step = 0
+        self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name))
 
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
         return build_optimizer(self.method.parameters() if params is None else params, self.optimizer_cfg)
@@ -74,6 +77,7 @@ class Trainer:
                 if self.grad_clip:
                     torch.nn.utils.clip_grad_norm_(method.parameters(), self.grad_clip)
                 optimizer.step()
+                self.advance_step()
                 method.after_optimizer_step(task)
                 for k, v in out.items():
                     if k == "logits":
@@ -82,8 +86,22 @@ class Trainer:
                         totals[k] = totals.get(k, 0.0) + float(v.detach().cpu())
                 n += 1
             if totals:
-                msg = ", ".join(f"{k}={v / max(n, 1):.4f}" for k, v in totals.items())
+                metrics = {k: v / max(n, 1) for k, v in totals.items()}
+                msg = ", ".join(f"{k}={v:.4f}" for k, v in metrics.items())
                 self.logger.info("task=%s epoch=%d/%d %s", task.name, epoch + 1, self.max_epochs, msg)
+                self.log_metrics(
+                    {
+                        **{f"train/{k}": v for k, v in metrics.items()},
+                        "train/task_index": float(getattr(task, "task_id", 0)),
+                        "train/epoch": epoch + 1,
+                    }
+                )
+
+    def advance_step(self, n: int = 1) -> None:
+        self.global_step += int(n)
+
+    def log_metrics(self, metrics: Mapping[str, Any], step: int | None = None) -> None:
+        self.experiment.log(metrics, step=self.global_step if step is None else step)
 
     @torch.no_grad()
     def evaluate_loader(self, loader) -> dict[str, float]:
@@ -101,26 +119,54 @@ class Trainer:
         return summarize_logits(logits, y)
 
     def run(self) -> dict[str, Any]:
-        self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
-        for i, task in enumerate(self.scenario.tasks):
-            self.logger.info("=== Task %d/%d: %s train=%d test=%d ===", i + 1, len(self.scenario.tasks), task.name, task.num_train, task.num_test)
-            train_loader = self.dataloader(i, "train", shuffle=True)
-            val_loader = self.dataloader(i, "val", shuffle=False) if task.num_val > 0 else None
-            self.method.before_task(task, train_loader)
-            self.method.to(self.device)
-            handled = self.method.fit_task(self, task, train_loader, val_loader)
-            if not handled:
-                self.default_train_loop(self.method, task, train_loader)
-            self.method.after_task(task, train_loader)
-            for j in range(i + 1):
-                test_loader = self.dataloader(j, "test", shuffle=False)
-                metrics = self.evaluate_loader(test_loader)
-                self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"])
-                self.logger.info("eval after_task=%d on_task=%d acc=%.4f auc=%.4f", i, j, metrics["acc"], metrics["auc"])
-            self._save_intermediate(i)
-        summary = self._write_outputs()
-        self.logger.info("Finished: AA=%.4f AF=%.4f AUC_AA=%.4f", summary["average_accuracy"], summary["average_forgetting"], summary["average_auc"])
-        return summary
+        try:
+            self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
+            self.log_metrics({"run/started": 1})
+            for i, task in enumerate(self.scenario.tasks):
+                self.logger.info("=== Task %d/%d: %s train=%d test=%d ===", i + 1, len(self.scenario.tasks), task.name, task.num_train, task.num_test)
+                self.log_metrics(
+                    {
+                        "task/index": i,
+                        "task/train_samples": task.num_train,
+                        "task/test_samples": task.num_test,
+                    }
+                )
+                train_loader = self.dataloader(i, "train", shuffle=True)
+                val_loader = self.dataloader(i, "val", shuffle=False) if task.num_val > 0 else None
+                self.method.before_task(task, train_loader)
+                self.method.to(self.device)
+                handled = self.method.fit_task(self, task, train_loader, val_loader)
+                if not handled:
+                    self.default_train_loop(self.method, task, train_loader)
+                self.method.after_task(task, train_loader)
+                for j in range(i + 1):
+                    test_loader = self.dataloader(j, "test", shuffle=False)
+                    metrics = self.evaluate_loader(test_loader)
+                    self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"])
+                    self.logger.info("eval after_task=%d on_task=%d acc=%.4f auc=%.4f", i, j, metrics["acc"], metrics["auc"])
+                    self.log_metrics(
+                        {
+                            f"eval/task_{j}/acc": metrics["acc"],
+                            f"eval/task_{j}/auc": metrics["auc"],
+                            f"eval/task_{j}/ece": metrics["ece"],
+                            "eval/after_task": i,
+                            "eval/on_task": j,
+                        }
+                    )
+                self._save_intermediate(i)
+            summary = self._write_outputs()
+            self.log_metrics(
+                {
+                    "summary/average_accuracy": summary["average_accuracy"],
+                    "summary/average_forgetting": summary["average_forgetting"],
+                    "summary/average_auc": summary["average_auc"],
+                    "summary/auc_forgetting": summary["auc_forgetting"],
+                }
+            )
+            self.logger.info("Finished: AA=%.4f AF=%.4f AUC_AA=%.4f", summary["average_accuracy"], summary["average_forgetting"], summary["average_auc"])
+            return summary
+        finally:
+            self.experiment.finish()
 
     def _save_intermediate(self, task_index: int) -> None:
         save_checkpoint(self.output_dir / "last.pt", model=self.method.state_dict(), cfg=self.cfg, task_index=task_index)

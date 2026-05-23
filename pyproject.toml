@@ -17,6 +17,7 @@ dependencies = [
   "Pillow>=9.0",
   "PyYAML>=6.0",
   "scikit-learn>=1.2",
+  "swanlab>=0.7.8",
 ]
 
 [project.optional-dependencies]

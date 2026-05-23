@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +36,7 @@ def base_cfg(tmp_path: Path, method: str) -> dict:
         "seed": 0,
         "device": "cpu",
         "output_dir": str(tmp_path / f"out_{method}"),
+        "logging": {"backend": "none"},
         "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}},
         "train": {"epochs": 1, "batch_size": 4, "num_workers": 0, "optimizer": {"type": "adamw", "lr": 1e-3}},
         "method": {
@@ -56,6 +59,32 @@ def test_finetune_smoke(tmp_path):
     assert "average_accuracy" in summary
 
 
+def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
+    calls = {"init": [], "log": [], "finish": 0}
+
+    class FakeRun:
+        def finish(self):
+            calls["finish"] += 1
+
+    fake_swanlab = types.SimpleNamespace(
+        init=lambda **kwargs: calls["init"].append(kwargs) or FakeRun(),
+        log=lambda data, step=None: calls["log"].append((data, step)),
+        finish=lambda: calls.__setitem__("finish", calls["finish"] + 1),
+    )
+    monkeypatch.setitem(sys.modules, "swanlab", fake_swanlab)
+
+    cfg = base_cfg(tmp_path, "finetune")
+    cfg.pop("logging")
+    summary = Trainer(cfg).run()
+
+    assert "average_accuracy" in summary
+    assert calls["init"]
+    assert calls["init"][0]["project"] == "CAIDBench"
+    assert calls["init"][0]["mode"] == "cloud"
+    assert any("summary/average_accuracy" in data for data, _ in calls["log"])
+    assert calls["finish"] == 1
+
+
 def test_sprompts_smoke(tmp_path):
     cfg = base_cfg(tmp_path, "sprompts")
     cfg["method"]["prompt_length"] = 2
@@ -73,6 +102,7 @@ def test_sprompts_prompt_token_sip_smoke(tmp_path):
         "seed": 0,
         "device": "cpu",
         "output_dir": str(tmp_path / "out_sprompts_sip"),
+        "logging": {"backend": "none"},
         "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}, "transform": {"size": 16}},
         "train": {"epochs": 1, "batch_size": 2, "num_workers": 0, "optimizer": {"type": "sgd", "lr": 1e-2}},
         "method": {
@@ -114,6 +144,7 @@ def test_hsic_online_image_smoke(tmp_path):
         "seed": 0,
         "device": "cpu",
         "output_dir": str(tmp_path / "out_hsic_online"),
+        "logging": {"backend": "none"},
         "scenario": {"data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)}, "transform": {"size": 16}},
         "train": {"epochs": 1, "batch_size": 2, "num_workers": 0, "optimizer": {"type": "adamw", "lr": 1e-3}},
         "method": {
@@ -161,6 +192,7 @@ def test_yaml_protocol_decouples_task_order_from_storage(tmp_path):
         "seed": 0,
         "device": "cpu",
         "output_dir": str(tmp_path / "out_protocol"),
+        "logging": {"backend": "none"},
         "scenario": {
             "data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)},
             "protocol": protocol,

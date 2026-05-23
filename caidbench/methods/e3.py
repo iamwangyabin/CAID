@@ -82,6 +82,7 @@ class E3Method(ContinualMethod):
                 if trainer.grad_clip:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), trainer.grad_clip)
                 opt.step()
+                trainer.advance_step()
 
     def _train_ekfn(self, loader: Any, trainer: Any, epochs: int) -> None:
         if len(self.experts) == 0:
@@ -103,6 +104,7 @@ class E3Method(ContinualMethod):
                 if trainer.grad_clip:
                     torch.nn.utils.clip_grad_norm_(self.ekfn.parameters(), trainer.grad_clip)
                 opt.step()
+                trainer.advance_step()
 
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
         epochs = int(trainer.max_epochs)

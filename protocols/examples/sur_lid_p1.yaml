@@ -1,0 +1,30 @@
+name: sur_lid_p1_official
+# Official paper P1 order: SDv21 -> FF++ -> DFDCP -> CDF.
+# The metadata values below should match DeepFakeBench/SUR-LID sidecars after
+# preprocessing. Add local aliases here only when the underlying split files are
+# still official-equivalent.
+tasks:
+  - id: sdv21
+    name: SDv21
+    numeric_id: 0
+    filter:
+      include:
+        dataset: [SDv21, StableDiffusionv21, Stable-Diffusion-v2-1]
+  - id: ffpp
+    name: FF++
+    numeric_id: 1
+    filter:
+      include:
+        dataset: [FaceForensics++, FF++]
+  - id: dfdcp
+    name: DFDCP
+    numeric_id: 2
+    filter:
+      include:
+        dataset: [DFDCP]
+  - id: cdf
+    name: CDF
+    numeric_id: 3
+    filter:
+      include:
+        dataset: [Celeb-DF-v2, Celeb-DF, CDF]

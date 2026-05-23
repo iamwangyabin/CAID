@@ -58,8 +58,9 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 
 ## HDP
 
-- Universal adversarial perturbation parameter simulates historical forgery distribution.
-- KD preserves historical fake-like responses and real-face distribution variation.
+- After each task, a targeted UAP is generated from current real samples and appended to a persistent UAP pool.
+- During later tasks, a sampled historical UAP is added to current real samples to create pseudo-forged samples with fake labels.
+- Feature-wise KD preserves real and pseudo-forged distributions from the previous detector; optional logit KD follows the official implementation's extra KL-style regularizer.
 
 ## SUR-LID
 

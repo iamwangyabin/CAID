@@ -1,0 +1,29 @@
+name: sur_lid_p2_official
+# Official paper P2 order: Hybrid -> FR -> FS -> EFS.
+# These labels are method-family aliases; align them with your DeepFakeBench
+# metadata generated from the official split files.
+tasks:
+  - id: hybrid
+    name: Hybrid
+    numeric_id: 0
+    filter:
+      include:
+        dataset: [Hybrid, FF++, FaceForensics++]
+  - id: fr
+    name: FR
+    numeric_id: 1
+    filter:
+      include:
+        dataset: [FR, MCNet, mcnet]
+  - id: fs
+    name: FS
+    numeric_id: 2
+    filter:
+      include:
+        dataset: [FS, BlendFace, blendface]
+  - id: efs
+    name: EFS
+    numeric_id: 3
+    filter:
+      include:
+        dataset: [EFS, StyleGAN3, stylegan3]

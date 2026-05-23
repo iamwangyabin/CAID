@@ -53,7 +53,7 @@ class SmallConvBackbone(nn.Module):
 class TimmBackbone(nn.Module):
     """Optional timm wrapper. Import is lazy so CAIDBench works without timm."""
 
-    def __init__(self, model_name: str, pretrained: bool = True, out_dim: int | None = None) -> None:
+    def __init__(self, model_name: str, pretrained: bool = True, out_dim: int | None = None, drop_rate: float = 0.0) -> None:
         super().__init__()
         try:
             import timm  # type: ignore
@@ -64,10 +64,11 @@ class TimmBackbone(nn.Module):
         if dim is None:
             raise ValueError(f"Cannot infer feature dimension for timm model {model_name}")
         self.out_dim = int(out_dim or dim)
+        self.dropout = nn.Dropout(float(drop_rate))
         self.proj = nn.Identity() if self.out_dim == dim else nn.Linear(dim, self.out_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.proj(self.model(x))
+        return self.proj(self.dropout(self.model(x)))
 
 
 class CLIPVisionBackbone(nn.Module):
@@ -219,7 +220,12 @@ def build_backbone(cfg: dict[str, Any] | None = None) -> nn.Module:
     if kind in {"small_conv", "cnn", "simple_cnn"}:
         return SmallConvBackbone(out_dim=int(cfg.get("out_dim", 512)), in_channels=int(cfg.get("in_channels", 3)))
     if kind == "timm":
-        return TimmBackbone(cfg["name"], pretrained=bool(cfg.get("pretrained", True)), out_dim=cfg.get("out_dim"))
+        return TimmBackbone(
+            cfg["name"],
+            pretrained=bool(cfg.get("pretrained", True)),
+            out_dim=cfg.get("out_dim"),
+            drop_rate=float(cfg.get("drop_rate", 0.0)),
+        )
     if kind in {"clip", "clip_vision", "online_clip", "open_clip"}:
         return CLIPVisionBackbone(
             backend=str(cfg.get("backend", "open_clip")),

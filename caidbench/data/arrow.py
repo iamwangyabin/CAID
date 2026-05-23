@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-import numpy as np
 import pandas as pd
 import torch
 from PIL import Image
@@ -17,7 +16,6 @@ from .arrow_schema import AID_IMAGE_COLUMN, AID_MAPPING_FILE, read_aid_split_sid
 from .hub import resolve_data_path
 
 _IMAGE_LIKE_DEFAULTS = ("image", "image_bytes", "bytes", "jpg", "png")
-_FEATURE_LIKE_DEFAULTS = ("feature", "features", "embedding", "x")
 
 
 def _require_pyarrow():
@@ -26,7 +24,7 @@ def _require_pyarrow():
         import pyarrow.ipc as ipc  # noqa: F401
         import pyarrow.parquet as pq  # noqa: F401
     except Exception as e:  # pragma: no cover - exercised only without optional dep
-        raise ImportError("Arrow backend requires optional dependency: pip install -e '.[arrow]'") from e
+        raise ImportError("Arrow backend requires pyarrow. Install CAIDBench project dependencies with `pip install -e .`.") from e
 
 
 def _read_arrow_file(path: Path):
@@ -118,7 +116,6 @@ class LoadedArrow:
     metadata: pd.DataFrame
     image_column: str | None
     path_column: str | None
-    feature_column: str | None
     root: Path | None
 
 
@@ -129,7 +126,6 @@ class ArrowImageDataset(Dataset):
       - image bytes in image_bytes / image / bytes
       - HuggingFace Image-like dict {"bytes": ..., "path": ...}
       - image paths in path / image_path / file_name
-      - feature vectors in feature / features / x
     """
 
     def __init__(self, loaded: LoadedArrow, indices: Iterable[int], transform_cfg: dict[str, Any] | None = None, task_id: int | None = None, task_name: str | None = None) -> None:
@@ -157,24 +153,10 @@ class ArrowImageDataset(Dataset):
 
     def _load_path(self, p: str) -> torch.Tensor:
         path = self._resolve_path(p)
-        suffix = path.suffix.lower()
-        if suffix == ".npy":
-            return torch.as_tensor(np.load(path), dtype=torch.float32)
-        if suffix in {".pt", ".pth"}:
-            obj = torch.load(path, map_location="cpu")
-            if isinstance(obj, dict):
-                for key in ("x", "feature", "features", "image"):
-                    if key in obj:
-                        obj = obj[key]
-                        break
-            return torch.as_tensor(obj, dtype=torch.float32)
         with Image.open(path) as img:
             return self.transform(img)
 
     def _load_x(self, row: int) -> torch.Tensor:
-        if self.loaded.feature_column:
-            value = self._column_value(self.loaded.feature_column, row)
-            return torch.as_tensor(value, dtype=torch.float32)
         if self.loaded.image_column:
             value = self._column_value(self.loaded.image_column, row)
             if isinstance(value, dict):
@@ -186,11 +168,9 @@ class ArrowImageDataset(Dataset):
                 return self._load_image_from_bytes(bytes(value))
             if isinstance(value, str):
                 return self._load_path(value)
-            if isinstance(value, (list, tuple, np.ndarray)):
-                return torch.as_tensor(value, dtype=torch.float32)
         if self.loaded.path_column:
             return self._load_path(str(self._column_value(self.loaded.path_column, row)))
-        raise ValueError("Arrow row has no image/feature/path column configured")
+        raise ValueError("Arrow row has no image/path column configured")
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         meta_pos = self.indices[idx]
@@ -224,12 +204,20 @@ class ArrowDataSource:
 
     @classmethod
     def from_config(cls, cfg: dict[str, Any]) -> "ArrowDataSource":
+        backend = str(cfg.get("backend", cfg.get("type", "aid_arrow"))).lower()
+        require_aid_sidecars = backend in {"aid", "aid_arrow", "aid_dataset"}
+        if cfg.get("feature_column") is not None:
+            raise ValueError("Pre-extracted feature columns are no longer supported; provide raw images with image_column or path_column.")
         path = resolve_data_path(cfg)
         if path is None:
             raise ValueError("Arrow data source requires data.path or data.remote")
+        path_obj = Path(path)
+        if require_aid_sidecars and (not path_obj.is_dir() or not (path_obj / AID_MAPPING_FILE).exists()):
+            raise FileNotFoundError(
+                f"AID Arrow backend expects a dataset directory containing {AID_MAPPING_FILE} and split JSON sidecars: {path_obj}"
+            )
         table = _read_arrow_path(path)
         sidecar = None
-        path_obj = Path(path)
         if path_obj.is_dir() and (path_obj / AID_MAPPING_FILE).exists():
             # Strict AID compatibility: mapping.json + <split>.json are enough.
             sidecar = read_aid_split_sidecars(path_obj)
@@ -248,24 +236,20 @@ class ArrowDataSource:
         names = set(table.column_names)
         image_column = cfg.get("image_column")
         path_column = cfg.get("path_column")
-        feature_column = cfg.get("feature_column")
         if image_column is None:
             image_column = next((c for c in _IMAGE_LIKE_DEFAULTS if c in names), None)
-        if feature_column is None:
-            feature_column = next((c for c in _FEATURE_LIKE_DEFAULTS if c in names), None)
         if path_column is None:
             path_column = next((c for c in ("path", "image_path", "file_name", "filepath") if c in names), None)
-        skip = {c for c in [image_column, feature_column] if c}
+        skip = {c for c in [image_column] if c}
         metadata = _safe_metadata(table, skip, sidecar=sidecar)
         loaded = LoadedArrow(
             table=table,
             metadata=metadata,
             image_column=image_column,
             path_column=path_column,
-            feature_column=feature_column,
             root=Path(cfg["root_dir"]) if cfg.get("root_dir") else None,
         )
         return cls(loaded)
 
     def make_dataset(self, row_indices: Iterable[int], transform_cfg: dict[str, Any] | None = None, task_id: int | None = None, task_name: str | None = None) -> ArrowImageDataset:
-        return ArrowImageDataset(self.loaded, row_indices=row_indices, transform_cfg=transform_cfg, task_id=task_id, task_name=task_name)
+        return ArrowImageDataset(self.loaded, indices=row_indices, transform_cfg=transform_cfg, task_id=task_id, task_name=task_name)

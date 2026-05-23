@@ -57,7 +57,7 @@ def _as_label_score(item: Any, default_score: float = 1.0) -> tuple[str, float]:
 
 
 def parse_object_labels(row: Mapping[str, Any]) -> list[tuple[str, float]] | None:
-    """Parse optional top-k object labels from manifest/Arrow metadata.
+    """Parse optional top-k object labels from Arrow metadata.
 
     Accepted forms:
       - object_labels='[["person", 92.0], ["face", 88.0]]'

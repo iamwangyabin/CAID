@@ -54,7 +54,7 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 - Historical prompt/head pairs are frozen after their task.
 - After each task, K-Means centers over task training features are stored as domain keys.
 - Inference routes each sample to the nearest seen task center before applying the corresponding prompt/head.
-- Official-style CAIDBench mode inserts learned visual prompt tokens into a frozen ViT/CLIP image transformer, matching S-iPrompts/S-liPrompts mechanics. Feature manifests still use a compatibility fallback because token prompts require raw images.
+- Official-style CAIDBench mode inserts learned visual prompt tokens into a frozen ViT/CLIP image transformer, matching S-iPrompts/S-liPrompts mechanics.
 
 ## HDP
 

@@ -122,14 +122,3 @@ class ContinualMethod(nn.Module, ABC):
 
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
         return False
-
-
-class FeatureOnlyWrapper(nn.Module):
-    """Adapter for methods that operate on pre-extracted features."""
-
-    def __init__(self, detector: nn.Module) -> None:
-        super().__init__()
-        self.detector = detector
-
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
-        return self.detector(x)

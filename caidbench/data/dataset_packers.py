@@ -270,19 +270,6 @@ def build_tifs_cail(root: str | Path, **kwargs: Any) -> pd.DataFrame:
     return normalize_records(records, root=root, **_norm_kwargs(kwargs))
 
 
-def build_from_manifest(manifest: str | Path, *, root: str | Path | None = None, dataset_name: str = "manifest", **kwargs: Any) -> pd.DataFrame:
-    path = Path(manifest)
-    if path.suffix.lower() in {".jsonl", ".json"}:
-        df = pd.read_json(path, lines=True)
-    else:
-        df = pd.read_csv(path)
-    records = df.to_dict(orient="records")
-    for r in records:
-        r.setdefault("dataset", dataset_name)
-        r.setdefault("source", dataset_name)
-    return normalize_records(records, root=root, **_norm_kwargs(kwargs))
-
-
 def _scan_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "default_split": kwargs.get("default_split", "train"),
@@ -305,5 +292,4 @@ PACKERS = {
     "deepfakebench": build_deepfakebench,
     "sur_lid": build_deepfakebench,
     "tifs_cail": build_tifs_cail,
-    "manifest": build_from_manifest,
 }

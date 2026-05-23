@@ -89,7 +89,7 @@ def normalize_records(
     strict_images: bool = False,
     **_: Any,
 ) -> pd.DataFrame:
-    """Normalize arbitrary scanner/manifest records into a minimal sidecar index.
+    """Normalize arbitrary scanner records into a minimal sidecar index.
 
     The returned DataFrame intentionally contains only lightweight metadata.  It
     is NOT the Arrow payload.  The payload is written by :func:`write_aid_dataset`
@@ -252,7 +252,7 @@ def write_aid_dataset(
     try:
         from datasets import Dataset
     except Exception as e:  # pragma: no cover
-        raise ImportError("AID-style Arrow output requires: pip install -e '.[arrow]'") from e
+        raise ImportError("AID-style Arrow output requires the datasets package. Install CAIDBench with `pip install -e .`.") from e
     out_path = Path(out)
     out_path.mkdir(parents=True, exist_ok=True)
     images = _iter_image_bytes(df, root=root)
@@ -284,7 +284,7 @@ def write_arrow_table(
         import pyarrow.ipc as ipc
         import pyarrow.parquet as pq
     except Exception as e:  # pragma: no cover
-        raise ImportError("Arrow writing requires optional dependency: pip install -e '.[arrow]'") from e
+        raise ImportError("Arrow writing requires pyarrow. Install CAIDBench with `pip install -e .`.") from e
     table = pa.Table.from_pandas(df, preserve_index=False)
     if fmt == "parquet" or out_path.suffix.lower() == ".parquet":
         pq.write_table(table, out_path)

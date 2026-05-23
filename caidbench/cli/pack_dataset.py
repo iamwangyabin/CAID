@@ -14,10 +14,8 @@ def main() -> None:
     )
     parser.add_argument("--kind", required=True, choices=sorted(PACKERS), help="Dataset packer to use")
     parser.add_argument("--root", default=None, help="Dataset root. Required for scanner-based packers and path resolution")
-    parser.add_argument("--manifest", default=None, help="Input CSV/JSONL manifest when --kind manifest")
     parser.add_argument("--out", required=True, help="Output AID-style HF dataset directory")
     parser.add_argument("--format", choices=["aid", "arrow", "parquet"], default="aid")
-    parser.add_argument("--dataset-name", default="manifest", help="Dataset name for manifest packer")
     parser.add_argument("--embed-images", action="store_true", help="Deprecated/no-op: AID-style output always stores image bytes in column `image`")
     parser.add_argument("--compute-sha1", action="store_true", help="Compute image SHA1 hashes")
     parser.add_argument("--no-size", action="store_true", help="Do not open images to record width/height")
@@ -38,14 +36,9 @@ def main() -> None:
         preprocess_profile=args.preprocess_profile,
         max_samples=args.max_samples,
     )
-    if args.kind == "manifest":
-        if not args.manifest:
-            raise SystemExit("--kind manifest requires --manifest")
-        df = packer(args.manifest, root=args.root, dataset_name=args.dataset_name, **common)
-    else:
-        if not args.root:
-            raise SystemExit(f"--kind {args.kind} requires --root")
-        df = packer(args.root, **common)
+    if not args.root:
+        raise SystemExit(f"--kind {args.kind} requires --root")
+    df = packer(args.root, **common)
 
     # Data quality report.
     bad_label = int((df["label"].astype(int) < 0).sum())
@@ -61,7 +54,7 @@ def main() -> None:
     }
     print(json.dumps(report, indent=2, ensure_ascii=False))
     if bad_label:
-        print("WARNING: some rows have label=-1. Fix folders/manifest or filter them before training.")
+        print("WARNING: some rows have label=-1. Fix folders or filter them before training.")
     if args.dry_run:
         return
     out = write_arrow_table(df, args.out, fmt=args.format, root=args.root)

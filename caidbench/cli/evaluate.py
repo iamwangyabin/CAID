@@ -20,19 +20,33 @@ def main() -> None:
         state = ckpt.get("model", ckpt)
         trainer.method.load_state_dict(state, strict=False)
         for i, _task in enumerate(trainer.scenario.tasks):
+            eval_payload: dict[str, float | int] = {}
             for j in range(i + 1):
                 loader = trainer.dataloader(j, "test", shuffle=False)
                 metrics = trainer.evaluate_loader(loader)
                 trainer.metric_matrix.update(i, j, metrics["acc"], metrics["auc"])
-                trainer.log_metrics(
+                trainer.eval_records.append(
                     {
-                        f"eval/task_{j}/acc": metrics["acc"],
-                        f"eval/task_{j}/auc": metrics["auc"],
-                        f"eval/task_{j}/ece": metrics["ece"],
-                        "eval/after_task": i,
-                        "eval/on_task": j,
+                        "after_task": i,
+                        "after_task_name": _task.name,
+                        "eval_task": j,
+                        "eval_task_name": trainer.scenario.tasks[j].name,
+                        "acc": metrics["acc"],
+                        "auc": metrics["auc"],
+                        "ece": metrics["ece"],
                     }
                 )
+                eval_payload[f"eval/task_{j}/acc"] = metrics["acc"]
+                eval_payload[f"eval/task_{j}/auc"] = metrics["auc"]
+                eval_payload[f"eval/task_{j}/ece"] = metrics["ece"]
+            eval_payload.update(
+                {
+                    "eval/average_accuracy": trainer.metric_matrix.average_accuracy(train_index=i, kind="acc"),
+                    "eval/average_auc": trainer.metric_matrix.average_accuracy(train_index=i, kind="auc"),
+                    "eval/after_task": i,
+                }
+            )
+            trainer.log_metrics(eval_payload, step=i)
         summary = trainer._write_outputs()
         trainer.log_metrics(
             {

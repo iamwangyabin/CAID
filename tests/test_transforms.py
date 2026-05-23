@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import csv
+import json
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,30 @@ from PIL import Image
 
 from caidbench.data.scenario import ContinualScenario
 from caidbench.data.transforms import build_transform
+
+
+def write_aid_image_dataset(root: Path, rows: list[dict]) -> Path:
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+
+    root.mkdir(parents=True, exist_ok=True)
+    table = pa.Table.from_pydict({"image": [row["image"] for row in rows]})
+    with pa.OSFile(str(root / "data.arrow"), "wb") as sink:
+        with ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+    with open(root / "mapping.json", "w", encoding="utf-8") as fp:
+        json.dump({str(row["path"]): i for i, row in enumerate(rows)}, fp)
+    split_payloads: dict[str, dict[str, dict[str, int]]] = {}
+    for row in rows:
+        split_payloads.setdefault(str(row["split"]), {}).setdefault("all", {})[str(row["path"])] = int(row["label"])
+    for split, payload in split_payloads.items():
+        with open(root / f"{split}.json", "w", encoding="utf-8") as fp:
+            json.dump(payload, fp)
+    with open(root / "caid_meta.jsonl", "w", encoding="utf-8") as fp:
+        for row in rows:
+            meta = {key: value for key, value in row.items() if key != "image"}
+            fp.write(json.dumps(meta) + "\n")
+    return root
 
 
 def test_yaml_transform_pipeline_outputs_tensor() -> None:
@@ -39,18 +64,15 @@ def test_scenario_uses_split_specific_transforms(tmp_path: Path) -> None:
     image = Image.fromarray(np.full((24, 24, 3), 128, dtype=np.uint8))
     rows = []
     for split in ("train", "test"):
-        path = tmp_path / f"{split}.png"
-        image.save(path)
-        rows.append({"path": path.name, "label": 0, "split": split, "task_id": 0})
-    manifest = tmp_path / "manifest.csv"
-    with open(manifest, "w", newline="", encoding="utf-8") as fp:
-        writer = csv.DictWriter(fp, fieldnames=["path", "label", "split", "task_id"])
-        writer.writeheader()
-        writer.writerows(rows)
+        buf = BytesIO()
+        image.save(buf, format="PNG")
+        rows.append({"path": f"{split}.png", "image": buf.getvalue(), "label": 0, "split": split, "task_hint": "task0"})
+    data_root = write_aid_image_dataset(tmp_path / "aid_images", rows)
 
     scenario = ContinualScenario.from_config(
         {
-            "data": {"backend": "manifest", "path": str(manifest), "root": str(tmp_path)},
+            "data": {"backend": "aid_arrow", "path": str(data_root), "image_column": "image"},
+            "protocol": {"tasks": [{"id": "task0", "name": "task0", "filter": {"include": {"task_hint": "task0"}}}]},
             "transform": {
                 "train": {
                     "trsf": [

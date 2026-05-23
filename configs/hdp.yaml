@@ -1,4 +1,4 @@
-_base_: _base_image.yaml
+_base_: _base_arrow.yaml
 seed: 1234
 output_dir: outputs/hdp_efficientnet_b4
 scenario:

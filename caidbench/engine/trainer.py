@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 
 from ..config import load_config
-from ..data.manifest import build_dataloader
+from ..data.loader import build_dataloader
 from ..data.scenario import ContinualScenario, TaskSpec
 from ..evaluation import ContinualMetricMatrix, summarize_logits
 from ..methods.base import build_optimizer
@@ -52,6 +52,7 @@ class Trainer:
         self.grad_clip = None if self.grad_clip is None else float(self.grad_clip)
         self.optimizer_cfg = dict(train_cfg.get("optimizer", {"type": "adamw", "lr": 1e-4}))
         self.metric_matrix = ContinualMetricMatrix([t.name for t in self.scenario.tasks])
+        self.eval_records: list[dict[str, Any]] = []
         self.global_step = 0
         self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name))
 
@@ -139,20 +140,34 @@ class Trainer:
                 if not handled:
                     self.default_train_loop(self.method, task, train_loader)
                 self.method.after_task(task, train_loader)
+                eval_payload: dict[str, float | int] = {}
                 for j in range(i + 1):
                     test_loader = self.dataloader(j, "test", shuffle=False)
                     metrics = self.evaluate_loader(test_loader)
                     self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"])
                     self.logger.info("eval after_task=%d on_task=%d acc=%.4f auc=%.4f", i, j, metrics["acc"], metrics["auc"])
-                    self.log_metrics(
+                    self.eval_records.append(
                         {
-                            f"eval/task_{j}/acc": metrics["acc"],
-                            f"eval/task_{j}/auc": metrics["auc"],
-                            f"eval/task_{j}/ece": metrics["ece"],
-                            "eval/after_task": i,
-                            "eval/on_task": j,
+                            "after_task": i,
+                            "after_task_name": task.name,
+                            "eval_task": j,
+                            "eval_task_name": self.scenario.tasks[j].name,
+                            "acc": metrics["acc"],
+                            "auc": metrics["auc"],
+                            "ece": metrics["ece"],
                         }
                     )
+                    eval_payload[f"eval/task_{j}/acc"] = metrics["acc"]
+                    eval_payload[f"eval/task_{j}/auc"] = metrics["auc"]
+                    eval_payload[f"eval/task_{j}/ece"] = metrics["ece"]
+                eval_payload.update(
+                    {
+                        "eval/average_accuracy": self.metric_matrix.average_accuracy(train_index=i, kind="acc"),
+                        "eval/average_auc": self.metric_matrix.average_accuracy(train_index=i, kind="auc"),
+                        "eval/after_task": i,
+                    }
+                )
+                self.log_metrics(eval_payload, step=i)
                 self._save_intermediate(i)
             summary = self._write_outputs()
             self.log_metrics(
@@ -185,4 +200,65 @@ class Trainer:
         }
         with open(self.output_dir / "summary.json", "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
+        self._log_summary_tables(summary)
         return summary
+
+    @staticmethod
+    def _table_value(value: Any) -> str | int | float:
+        if value is None:
+            return ""
+        try:
+            value_float = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if np.isnan(value_float):
+            return ""
+        return round(value_float, 6)
+
+    def _log_summary_tables(self, summary: Mapping[str, Any]) -> None:
+        task_names = [t.name for t in self.scenario.tasks]
+        headers = ["after_task"] + task_names
+        for kind in ("acc", "auc"):
+            rows = [
+                [row_idx] + [self._table_value(value) for value in row]
+                for row_idx, row in enumerate(summary["tables"][kind])
+            ]
+            self.experiment.log_table(f"summary/{kind}_matrix", headers, rows)
+
+        detail_rows = [
+            [
+                record["after_task"],
+                record["after_task_name"],
+                record["eval_task"],
+                record["eval_task_name"],
+                self._table_value(record["acc"]),
+                self._table_value(record["auc"]),
+                self._table_value(record["ece"]),
+            ]
+            for record in self.eval_records
+        ]
+        self.experiment.log_table(
+            "summary/eval_details",
+            ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "auc", "ece"],
+            detail_rows,
+        )
+
+        task_rows = [
+            [
+                idx,
+                task.task_id,
+                task.name,
+                ", ".join(task.domains),
+                ", ".join(task.generators),
+                ", ".join(task.scenes),
+                task.num_train,
+                task.num_val,
+                task.num_test,
+            ]
+            for idx, task in enumerate(self.scenario.tasks)
+        ]
+        self.experiment.log_table(
+            "summary/task_details",
+            ["index", "task_id", "name", "domains", "generators", "scenes", "train", "val", "test"],
+            task_rows,
+        )

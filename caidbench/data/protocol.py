@@ -15,7 +15,7 @@ def load_protocol(protocol: str | Path | Mapping[str, Any] | None) -> dict[str, 
     """Load a protocol definition.
 
     A protocol is the experiment-level mapping from dataset metadata to
-    continual tasks. It deliberately lives outside the Arrow/manifest storage.
+    continual tasks. It deliberately lives outside Arrow storage.
     """
     if protocol is None:
         return {}

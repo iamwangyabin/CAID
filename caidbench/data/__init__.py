@@ -1,4 +1,4 @@
-from .manifest import ManifestImageDataset, build_dataloader, read_manifest
+from .loader import build_dataloader
 from .scenario import ContinualScenario, TaskSpec
 
-__all__ = ["ManifestImageDataset", "build_dataloader", "read_manifest", "ContinualScenario", "TaskSpec"]
+__all__ = ["build_dataloader", "ContinualScenario", "TaskSpec"]

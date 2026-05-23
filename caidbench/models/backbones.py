@@ -7,25 +7,6 @@ import torch.nn.functional as F
 from torch import nn
 
 
-class IdentityBackbone(nn.Module):
-    """Backbone for already materialized feature vectors.
-
-    This is kept for smoke tests and for methods whose official repositories
-    genuinely operate on saved embeddings. HSIC Bottleneck now defaults to an
-    online image backbone instead of this feature-only path.
-    """
-
-    def __init__(self, in_dim: int, flatten: bool = True) -> None:
-        super().__init__()
-        self.out_dim = int(in_dim)
-        self.flatten = flatten
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.flatten:
-            x = x.reshape(x.shape[0], -1)
-        return x.float()
-
-
 class SmallConvBackbone(nn.Module):
     """CPU-safe image backbone for smoke tests and small experiments.
 
@@ -74,9 +55,8 @@ class TimmBackbone(nn.Module):
 class CLIPVisionBackbone(nn.Module):
     """Online CLIP image feature extractor.
 
-    This wrapper intentionally computes CLIP features inside the model forward
-    pass. It removes the old requirement that HSIC Bottleneck must consume
-    pre-extracted ``packed_features.npy`` / ``.npy`` tensors.
+    This wrapper intentionally computes CLIP features from raw image tensors
+    inside the model forward pass.
 
     Supported backends:
       - ``open_clip``: ``pip install open_clip_torch``; default for ViT-L/14.
@@ -203,7 +183,7 @@ class CLIPVisionBackbone(nn.Module):
         if x.ndim != 4:
             raise ValueError(
                 "CLIPVisionBackbone expects raw image tensors [B,3,H,W]. "
-                "Do not point the HSIC config at .npy feature manifests unless you intentionally switch to backbone.type=identity."
+                "Configure scenario.data with raw images, not pre-extracted feature rows."
             )
         if self.backend == "open_clip":
             z = self._forward_open_clip(x.float())
@@ -215,8 +195,6 @@ class CLIPVisionBackbone(nn.Module):
 def build_backbone(cfg: dict[str, Any] | None = None) -> nn.Module:
     cfg = cfg or {}
     kind = str(cfg.get("type", "small_conv")).lower()
-    if kind in {"identity", "feature", "features"}:
-        return IdentityBackbone(in_dim=int(cfg["in_dim"]), flatten=bool(cfg.get("flatten", True)))
     if kind in {"small_conv", "cnn", "simple_cnn"}:
         return SmallConvBackbone(out_dim=int(cfg.get("out_dim", 512)), in_channels=int(cfg.get("in_channels", 3)))
     if kind == "timm":

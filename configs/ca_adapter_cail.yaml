@@ -1,4 +1,4 @@
-_base_: _base_feature.yaml
+_base_: _base_arrow.yaml
 method:
   name: ca_adapter_cail
   adapter_bottleneck: 32

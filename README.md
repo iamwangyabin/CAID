@@ -16,16 +16,20 @@ Optional extras:
 
 ```bash
 pip install -e ".[clip]"       # CLIP / open_clip backbones
-pip install -e ".[arrow,hub]"  # AID Arrow datasets and remote mirrors
+pip install -e ".[hub]"        # remote Hugging Face / ModelScope mirrors
 pip install -e ".[dev]"        # tests
 ```
 
 ## Quick Start
 
-Create a manifest from `root/domain/split/{real,fake}/*.jpg`:
+Pack a processed image dataset into AID-style Arrow:
 
 ```bash
-caid-make-manifest --root /path/to/dataset --out data/manifest.csv
+caid-pack-dataset \
+  --kind deepfakebench \
+  --root /data/caid_processed/deepfakebench_faces \
+  --out /data/caid_arrow/deepfakebench_faces \
+  --preprocess-profile sur_lid_deepfakebench_v1
 ```
 
 Train a method:
@@ -52,7 +56,7 @@ logging:
 For local smoke tests or runs without experiment tracking, set
 `logging.backend=none`.
 
-A minimal manifest contains:
+A minimal AID-style metadata row contains:
 
 ```text
 path,label,split,task_id,domain,generator,scene
@@ -60,23 +64,14 @@ path,label,split,task_id,domain,generator,scene
 /path/img2.jpg,1,train,0,progan,progan,object
 ```
 
-`label=0` means real and `label=1` means fake. Image paths are the default data
-path; `.npy`, `.pt`, and `.pth` features remain available for explicit
-feature-only configs.
+`label=0` means real and `label=1` means fake. Training data is read from an
+AID-style Arrow directory; labels, splits, subsets, and task metadata are
+reconstructed from `mapping.json`, split JSON files, and optional
+`caid_meta.jsonl`.
 
 ## Data Interfaces
 
-CAIDBench supports manifest and AID Arrow sources under `scenario.data`:
-
-```yaml
-scenario:
-  data:
-    backend: manifest
-    path: data/manifest.csv
-    root: /path/to/images
-```
-
-or an AID-style Arrow dataset:
+CAIDBench supports AID-style Arrow sources under `scenario.data`:
 
 ```yaml
 scenario:
@@ -93,16 +88,6 @@ scenario:
       - _target_: caidbench.data.transforms.Normalize
         mean: [0.485, 0.456, 0.406]
         std: [0.229, 0.224, 0.225]
-```
-
-Pack a processed dataset into AID-style Arrow:
-
-```bash
-caid-pack-dataset \
-  --kind deepfakebench \
-  --root /data/caid_processed/deepfakebench_faces \
-  --out /data/caid_arrow/deepfakebench_faces \
-  --preprocess-profile sur_lid_deepfakebench_v1
 ```
 
 Inspect existing AID subsets before writing a protocol:
@@ -132,7 +117,7 @@ official split, backbone, preprocessing, schedule, and checkpoint choices.
 ```text
 caidbench/
   cli/          command line entry points
-  data/         manifests, AID Arrow loading, protocols, packers
+  data/         AID Arrow loading, protocols, packers
   engine/       continual training loop and outputs
   evaluation/   accuracy, AUC, AA/AF metrics
   losses/       KD, contrastive, HSIC, alignment losses

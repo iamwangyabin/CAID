@@ -120,7 +120,7 @@ def resolve_data_path(cfg: Mapping[str, Any]) -> Path | None:
 
     remote = dict(remote_raw or {})
     for key, value in cfg.items():
-        if key not in {"remote", "hub", "backend", "type", "path", "root", "image_column", "path_column", "feature_column", "root_dir"}:
+        if key not in {"remote", "hub", "backend", "type", "path", "root", "image_column", "path_column", "root_dir"}:
             remote.setdefault(key, value)
 
     provider = _normalize_provider(remote.get("provider", remote.get("platform", cfg.get("provider", cfg.get("platform")))))

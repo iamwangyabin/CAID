@@ -1,4 +1,4 @@
-_base_: _base_feature.yaml
+_base_: _base_arrow.yaml
 method:
   name: dfil
   memory_size: 1500

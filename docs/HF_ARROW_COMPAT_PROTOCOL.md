@@ -178,7 +178,7 @@ Non-reserved subset names such as `biggan`, `crn`, `cyclegan`, `mj`, or
 
 The packer should build one source directory at a time.
 
-Input manifest fields:
+Input metadata fields:
 
 | field | required | meaning |
 |---|---:|---|
@@ -229,7 +229,8 @@ rows = {
     "source_dataset": [],
 }
 
-# Fill rows from a manifest, reading image bytes into rows["image"].
+# Fill rows by scanning the processed dataset directory and reading image bytes
+# into rows["image"].
 ds = Dataset.from_dict(rows)
 ds.save_to_disk("out/CDDB")
 ```
@@ -245,7 +246,7 @@ split_payloads = {
     "test": {},
 }
 
-for path, label, split, subset in manifest_rows:
+for path, label, split, subset in metadata_rows:
     split_payloads[split].setdefault(subset, {})[path] = int(label)
 ```
 
@@ -333,7 +334,8 @@ scenario:
 
 Current CAIDBench supports one remote Arrow/AID source through the regular
 `aid_arrow` backend. Set `remote.platform` to choose between equivalent mirrors:
-install optional dependencies with `pip install -e ".[arrow,hub]"`.
+install CAIDBench with `pip install -e .`; add `pip install -e ".[hub]"`
+when remote Hugging Face or ModelScope mirrors are needed.
 
 ```yaml
 scenario:

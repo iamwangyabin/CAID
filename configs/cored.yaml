@@ -1,4 +1,4 @@
-_base_: _base_feature.yaml
+_base_: _base_arrow.yaml
 method:
   name: cored
   kd_weight: 1.0

@@ -1,4 +1,4 @@
-_base_: _base_image.yaml
+_base_: _base_arrow.yaml
 output_dir: outputs/prompt2guard
 scenario:
   transform:

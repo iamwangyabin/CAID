@@ -3,9 +3,10 @@ device: auto
 output_dir: outputs/arrow_run
 scenario:
   data:
-    backend: arrow
-    # AID-style dataset directory produced by caid-pack-dataset/caid-pack-arrow.
-    # The Arrow/HF payload has one column: image. Metadata is in index.jsonl.
+    backend: aid_arrow
+    # AID-style dataset directory produced by caid-pack-dataset.
+    # The Arrow/HF payload has one column: image. Metadata is read from
+    # mapping.json plus train/val/test JSON sidecars in the same directory.
     path: data/arrow/dataset
     image_column: image
     path_column: null

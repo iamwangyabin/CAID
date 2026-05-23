@@ -1,10 +1,6 @@
-_base_: _base_image.yaml
+_base_: _base_arrow.yaml
 output_dir: outputs/hsic_debug
 scenario:
-  data:
-    backend: manifest
-    path: data/manifest.csv
-    root: null
   transform:
     trsf:
       - _target_: caidbench.data.transforms.SquareResize

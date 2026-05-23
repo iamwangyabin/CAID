@@ -26,9 +26,9 @@ class TaskSpec:
 class ContinualScenario:
     """Ordered continual-learning scenario.
 
-    The scenario is built from a metadata-backed data source plus an optional
+    The scenario is built from an Arrow-backed data source plus an optional
     protocol YAML. Storage and incremental task definitions stay decoupled:
-    ``scenario.data`` selects manifest/Arrow storage, while
+    ``scenario.data`` selects Arrow/AID Arrow storage, while
     ``scenario.protocol`` selects task composition and order.
     """
 
@@ -56,7 +56,7 @@ class ContinualScenario:
         if not data_cfg and "backend" in scfg:
             data_cfg = {k: v for k, v in scfg.items() if k not in {"protocol", "transform"}}
         if not data_cfg:
-            raise ValueError("Config must define scenario.data; legacy scenario.manifest is no longer supported")
+            raise ValueError("Config must define scenario.data with an AID Arrow dataset directory")
         source = build_data_source(data_cfg)
         protocol = scfg.get("protocol", {})
         return cls(source=source, protocol=protocol, transform_cfg=transform_cfg)

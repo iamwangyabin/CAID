@@ -45,6 +45,12 @@ class NullExperimentLogger:
     def log(self, data: Mapping[str, Any], step: int | None = None) -> None:
         return None
 
+    def log_artifacts(self, data: Mapping[str, Any], step: int | None = None) -> None:
+        return None
+
+    def log_table(self, name: str, headers: list[Any], rows: list[list[Any]], step: int | None = None) -> None:
+        return None
+
     def finish(self) -> None:
         return None
 
@@ -93,6 +99,16 @@ class SwanLabExperimentLogger:
                 payload[str(key)] = scalar
         if payload:
             self._swanlab.log(payload, step=step)
+
+    def log_artifacts(self, data: Mapping[str, Any], step: int | None = None) -> None:
+        payload = {str(key): _jsonable(value) for key, value in data.items()}
+        if payload:
+            self._swanlab.log(payload, step=step)
+
+    def log_table(self, name: str, headers: list[Any], rows: list[list[Any]], step: int | None = None) -> None:
+        table = self._swanlab.echarts.Table()
+        table.add(_jsonable(headers), _jsonable(rows))
+        self._swanlab.log({str(name): table}, step=step)
 
     def finish(self) -> None:
         if self._run is not None and hasattr(self._run, "finish"):

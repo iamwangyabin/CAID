@@ -19,8 +19,7 @@ class HSICBottleneckMethod(ContinualMethod):
     The method no longer assumes offline CLIP feature extraction. In the
     default config, raw image tensors are passed through an online CLIP vision
     backbone inside ``self.detector`` before HSIC losses and HGR replay are
-    computed. Feature manifests remain supported only as an explicit fallback
-    when users intentionally set ``backbone.type=identity``.
+    computed.
 
     Nuisance variables default to generator/domain identifiers; task IDs are
     used when generator strings are absent.

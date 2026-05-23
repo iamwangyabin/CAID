@@ -1,4 +1,4 @@
-_base_: _base_feature.yaml
+_base_: _base_arrow.yaml
 method:
   name: saido
   lora_rank: 8

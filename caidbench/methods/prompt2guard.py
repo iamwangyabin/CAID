@@ -199,7 +199,7 @@ class SliNet(nn.Module):
             if self.topk_classes > 0:
                 raise ValueError(
                     "Prompt2Guard requires batch['object_labels'] when topk_classes > 0. "
-                    "Add an object_labels/topk_object_labels column to the manifest or Arrow metadata."
+                    "Add an object_labels/topk_object_labels column to Arrow metadata."
                 )
             return [[] for _ in range(batch_size)], torch.ones(batch_size, 0, device=self.device)
 

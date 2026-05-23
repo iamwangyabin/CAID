@@ -12,9 +12,6 @@ from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, build_optimizer
 
 
-_FEATURE_BACKBONES = {"identity", "feature", "features"}
-
-
 def _insert_prompt_tokens(x: torch.Tensor, prompt_tokens: torch.Tensor | None, num_prefix_tokens: int = 1) -> torch.Tensor:
     if prompt_tokens is None:
         return x
@@ -143,45 +140,6 @@ class OpenCLIPPromptLearner(nn.Module):
         return torch.cat([self.token_prefix, ctx, self.token_suffix], dim=1)
 
 
-class FeatureSPrompt(nn.Module):
-    """Compatibility path for feature manifests; not used for faithful reproduction."""
-
-    def __init__(
-        self,
-        feature_dim: int,
-        num_classes: int,
-        prompt_length: int = 10,
-        init_scale: float = 0.02,
-        head_type: str = "cosine",
-        logit_scale: float = 20.0,
-        normalize_features: bool = True,
-    ) -> None:
-        super().__init__()
-        self.prompt = nn.Parameter(torch.randn(int(prompt_length), int(feature_dim)) * float(init_scale))
-        self.head_type = str(head_type).lower()
-        self.logit_scale = float(logit_scale)
-        self.normalize_features = bool(normalize_features)
-        if self.head_type == "cosine":
-            self.class_prototypes = nn.Parameter(torch.randn(int(num_classes), int(feature_dim)) * float(init_scale))
-            self.classifier = None
-        elif self.head_type == "linear":
-            self.class_prototypes = None
-            self.classifier = nn.Linear(int(feature_dim), int(num_classes))
-        else:
-            raise KeyError(f"Unknown S-Prompts head_type={head_type!r}; use 'cosine' or 'linear'.")
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        prompt_context = self.prompt.mean(dim=0, keepdim=True).to(dtype=z.dtype)
-        z = z + prompt_context
-        z = F.normalize(z, dim=-1) if self.normalize_features else z
-        if self.head_type == "cosine":
-            weight = F.normalize(self.class_prototypes.to(dtype=z.dtype), dim=-1)
-            return (z @ weight.t()) * self.logit_scale
-        if self.classifier is None:
-            raise RuntimeError("Linear S-Prompts head was not initialized")
-        return self.classifier(z)
-
-
 @register_method("sprompts")
 @register_method("s_prompts")
 class SPromptsMethod(ContinualMethod):
@@ -200,7 +158,6 @@ class SPromptsMethod(ContinualMethod):
         random_state: int = 0,
         net_type: str = "sip",
         implementation: str = "official",
-        feature_fallback: bool = True,
         backbone: dict[str, Any] | None = None,
         detector_cfg: dict[str, Any] | None = None,
         num_classes: int = 2,
@@ -213,20 +170,13 @@ class SPromptsMethod(ContinualMethod):
     ) -> None:
         detector_cfg = dict(detector_cfg or {})
         backbone_cfg = dict(backbone or detector_cfg.get("backbone", {}))
-        backbone_type = str(backbone_cfg.get("type", "timm")).lower()
-        use_feature_mode = str(implementation).lower() in {"feature", "approx", "legacy"} or (
-            bool(feature_fallback) and backbone_type in _FEATURE_BACKBONES
-        )
+        if str(implementation).lower() not in {"official", "image"}:
+            raise ValueError("S-Prompts only supports raw-image official mode; pre-extracted feature modes were removed.")
 
-        if use_feature_mode:
-            super().__init__(detector_cfg=detector_cfg, num_classes=num_classes, **kwargs)
-        else:
-            nn.Module.__init__(self)
-            self.num_classes = int(num_classes)
-            self.current_task_id: int | None = None
-            self.extra_cfg = dict(kwargs)
-
-        self._feature_mode = bool(use_feature_mode)
+        nn.Module.__init__(self)
+        self.num_classes = int(num_classes)
+        self.current_task_id: int | None = None
+        self.extra_cfg = dict(kwargs)
         self.prompt_length = int(prompt_length)
         self.num_centers = int(num_centers)
         self.prompt_init_scale = float(prompt_init_scale)
@@ -241,14 +191,6 @@ class SPromptsMethod(ContinualMethod):
         self.routing_metric = str(routing_metric).lower()
         self.current_prompt_key = "task0"
         self._known_classes = 0
-
-        if self._feature_mode:
-            self.task_modules = nn.ModuleDict()
-            self.detector.head.requires_grad_(False)
-            if not self.train_backbone:
-                for p in self.detector.backbone.parameters():
-                    p.requires_grad_(False)
-            return
 
         if self.net_type not in {"sip", "slip"}:
             raise ValueError("S-Prompts net_type must be 'sip' or 'slip', matching the official repo.")
@@ -281,17 +223,6 @@ class SPromptsMethod(ContinualMethod):
     def _center_name(key: str) -> str:
         return f"sprompt_centers_{key}"
 
-    def _new_feature_module(self) -> FeatureSPrompt:
-        return FeatureSPrompt(
-            feature_dim=self.detector.feature_dim,
-            num_classes=self.num_classes,
-            prompt_length=self.prompt_length,
-            init_scale=self.prompt_init_scale,
-            head_type=self.head_type,
-            logit_scale=self.logit_scale,
-            normalize_features=self.normalize_features,
-        )
-
     def _add_official_task(self, key: str) -> None:
         if key in self.prompt_pool:
             return
@@ -312,15 +243,6 @@ class SPromptsMethod(ContinualMethod):
             )
 
     def _freeze_except_current(self) -> None:
-        if self._feature_mode:
-            self.detector.head.requires_grad_(False)
-            for p in self.detector.backbone.parameters():
-                p.requires_grad_(self.train_backbone)
-            for key, module in self.task_modules.items():
-                for p in module.parameters():
-                    p.requires_grad_(key == self.current_prompt_key)
-            return
-
         for p in self.image_encoder.parameters():
             p.requires_grad_(self.train_backbone)
         for key, p in self.prompt_pool.items():
@@ -332,10 +254,7 @@ class SPromptsMethod(ContinualMethod):
 
     def train(self, mode: bool = True):  # type: ignore[override]
         super().train(mode)
-        if self._feature_mode:
-            if not self.train_backbone:
-                self.detector.backbone.eval()
-        elif not self.train_backbone:
+        if not self.train_backbone:
             self.image_encoder.eval()
         return self
 
@@ -343,11 +262,7 @@ class SPromptsMethod(ContinualMethod):
         self.current_task_id = int(getattr(task, "task_id", task if isinstance(task, int) else 0))
         self._known_classes = int(self.current_task_id) * self.num_classes
         key = f"task{self.current_task_id}"
-        if self._feature_mode:
-            if key not in self.task_modules:
-                self.task_modules[key] = self._new_feature_module()
-        else:
-            self._add_official_task(key)
+        self._add_official_task(key)
         self.current_prompt_key = key
         self._freeze_except_current()
 
@@ -363,8 +278,7 @@ class SPromptsMethod(ContinualMethod):
         return F.normalize(z, dim=-1) if self.normalize_features else z
 
     def _available_center_keys(self) -> list[str]:
-        keys = self.task_modules.keys() if self._feature_mode else self.prompt_pool.keys()
-        return [key for key in keys if self._center_name(key) in self._buffers]
+        return [key for key in self.prompt_pool.keys() if self._center_name(key) in self._buffers]
 
     def _route(self, z: torch.Tensor, task_keys: list[str]) -> torch.Tensor:
         center_keys = self._available_center_keys()
@@ -432,16 +346,6 @@ class SPromptsMethod(ContinualMethod):
 
     def predict(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:
         x = batch["x"].to(self.device)
-        if self._feature_mode:
-            z = self.detector.extract_features(x)
-            task_keys = list(self.task_modules.keys())
-            if not task_keys:
-                raise RuntimeError("S-Prompts task bank is empty; call before_task first.")
-            selection = self._route(z, task_keys)
-            logits_by_task = torch.stack([self.task_modules[key](z) for key in task_keys], dim=1)
-            logits = logits_by_task[torch.arange(z.shape[0], device=z.device), selection]
-            return {"logits": logits, "features": z, "task_selection": selection.detach()}
-
         task_keys = list(self.prompt_pool.keys())
         if not task_keys:
             raise RuntimeError("S-Prompts task bank is empty; call before_task first.")
@@ -455,20 +359,15 @@ class SPromptsMethod(ContinualMethod):
 
     def observe(self, batch: dict[str, Any], task: Any | None = None) -> dict[str, torch.Tensor]:
         batch = batch_to_device(batch, self.device)
-        if self._feature_mode:
-            z = self.detector.extract_features(batch["x"])
-            logits = self.task_modules[self.current_prompt_key](z)
-        else:
-            z = self.image_encoder(batch["x"], self.prompt_pool[self.current_prompt_key])
-            logits = self._head_logits(z, self.current_prompt_key)
+        z = self.image_encoder(batch["x"], self.prompt_pool[self.current_prompt_key])
+        logits = self._head_logits(z, self.current_prompt_key)
         loss = F.cross_entropy(logits, self._local_targets(batch["y"]))
         return {"loss": loss, "ce": loss.detach()}
 
     def _cluster_features(self, features: torch.Tensor) -> torch.Tensor:
         features = self._selector_features(features).detach().cpu()
         if features.numel() == 0:
-            dim = self.detector.feature_dim if self._feature_mode else self.feature_dim
-            return features.reshape(0, dim)
+            return features.reshape(0, self.feature_dim)
         arr = features.numpy()
         unique = np.unique(arr, axis=0)
         n_clusters = min(max(self.num_centers, 1), len(unique))
@@ -499,10 +398,7 @@ class SPromptsMethod(ContinualMethod):
         features = []
         for batch in train_loader:
             x = batch["x"].to(self.device)
-            if self._feature_mode:
-                features.append(self.detector.extract_features(x).detach().cpu())
-            else:
-                features.append(self.image_encoder(x, None).detach().cpu())
+            features.append(self.image_encoder(x, None).detach().cpu())
         if features:
             self._store_centers(self.current_prompt_key, self._cluster_features(torch.cat(features, dim=0)))
         if was_training:

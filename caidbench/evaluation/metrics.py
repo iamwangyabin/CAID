@@ -69,6 +69,55 @@ def binary_auroc(logits: torch.Tensor | np.ndarray, y: torch.Tensor | np.ndarray
         return float(auc)
 
 
+def _binary_score(logits: torch.Tensor | np.ndarray) -> np.ndarray:
+    logits_np = _to_numpy(logits)
+    if logits_np.ndim == 2 and logits_np.shape[1] > 1:
+        exp = np.exp(logits_np - logits_np.max(axis=1, keepdims=True))
+        return exp[:, 1] / np.maximum(exp.sum(axis=1), 1e-12)
+    return 1.0 / (1.0 + np.exp(-logits_np.reshape(-1)))
+
+
+def binary_average_precision(logits: torch.Tensor | np.ndarray, y: torch.Tensor | np.ndarray) -> float:
+    y_np = _to_numpy(y).astype(int).reshape(-1)
+    if len(np.unique(y_np)) < 2:
+        return float("nan")
+    score = _binary_score(logits)
+    try:
+        from sklearn.metrics import average_precision_score
+
+        return float(average_precision_score(y_np, score))
+    except Exception:
+        order = np.argsort(-score, kind="mergesort")
+        y_sorted = y_np[order]
+        positives = y_sorted == 1
+        n_pos = int(positives.sum())
+        if n_pos == 0:
+            return float("nan")
+        precision = np.cumsum(positives) / (np.arange(len(y_sorted)) + 1)
+        return float(precision[positives].sum() / n_pos)
+
+
+def binary_f1(logits: torch.Tensor | np.ndarray, y: torch.Tensor | np.ndarray) -> float:
+    logits_np = _to_numpy(logits)
+    y_np = _to_numpy(y).astype(int).reshape(-1)
+    if y_np.size == 0:
+        return float("nan")
+    if logits_np.ndim == 2 and logits_np.shape[1] > 1:
+        pred = logits_np.argmax(axis=1).reshape(-1)
+    else:
+        pred = (_binary_score(logits_np) >= 0.5).astype(int)
+    try:
+        from sklearn.metrics import f1_score
+
+        return float(f1_score(y_np, pred, zero_division=0))
+    except Exception:
+        tp = float(((pred == 1) & (y_np == 1)).sum())
+        fp = float(((pred == 1) & (y_np == 0)).sum())
+        fn = float(((pred == 0) & (y_np == 1)).sum())
+        denom = 2 * tp + fp + fn
+        return float((2 * tp) / denom) if denom else 0.0
+
+
 def expected_calibration_error(logits: torch.Tensor | np.ndarray, y: torch.Tensor | np.ndarray, bins: int = 15) -> float:
     logits_np = _to_numpy(logits)
     y_np = _to_numpy(y).astype(int).reshape(-1)
@@ -97,6 +146,8 @@ def summarize_logits(logits: torch.Tensor | np.ndarray, y: torch.Tensor | np.nda
     return {
         f"{p}acc": binary_accuracy(logits, y),
         f"{p}auc": binary_auroc(logits, y),
+        f"{p}ap": binary_average_precision(logits, y),
+        f"{p}f1": binary_f1(logits, y),
         f"{p}ece": expected_calibration_error(logits, y),
     }
 
@@ -112,23 +163,42 @@ class ContinualMetricMatrix:
     task_names: list[str]
     acc: np.ndarray = field(init=False)
     auc: np.ndarray = field(init=False)
+    ap: np.ndarray = field(init=False)
+    f1: np.ndarray = field(init=False)
 
     def __post_init__(self) -> None:
         n = len(self.task_names)
         self.acc = np.full((n, n), np.nan, dtype=float)
         self.auc = np.full((n, n), np.nan, dtype=float)
+        self.ap = np.full((n, n), np.nan, dtype=float)
+        self.f1 = np.full((n, n), np.nan, dtype=float)
 
-    def update(self, train_index: int, eval_index: int, acc: float, auc: float) -> None:
+    def update(self, train_index: int, eval_index: int, acc: float, auc: float, ap: float | None = None, f1: float | None = None) -> None:
         self.acc[train_index, eval_index] = acc
         self.auc[train_index, eval_index] = auc
+        if ap is not None:
+            self.ap[train_index, eval_index] = ap
+        if f1 is not None:
+            self.f1[train_index, eval_index] = f1
+
+    def _matrix(self, kind: str) -> np.ndarray:
+        try:
+            return {
+                "acc": self.acc,
+                "auc": self.auc,
+                "ap": self.ap,
+                "f1": self.f1,
+            }[kind]
+        except KeyError as exc:
+            raise KeyError(f"Unknown metric kind: {kind}") from exc
 
     def average_accuracy(self, train_index: int | None = None, kind: str = "acc") -> float:
-        matrix = self.acc if kind == "acc" else self.auc
+        matrix = self._matrix(kind)
         row = matrix[-1 if train_index is None else train_index]
         return float(np.nanmean(row))
 
     def average_forgetting(self, kind: str = "acc") -> float:
-        matrix = self.acc if kind == "acc" else self.auc
+        matrix = self._matrix(kind)
         n = matrix.shape[0]
         vals: list[float] = []
         for j in range(max(n - 1, 0)):
@@ -145,4 +215,4 @@ class ContinualMetricMatrix:
                 out.append([None if isinstance(v, float) and math.isnan(v) else float(v) for v in row])
             return out
 
-        return {"acc": clean(self.acc), "auc": clean(self.auc)}
+        return {"acc": clean(self.acc), "auc": clean(self.auc), "ap": clean(self.ap), "f1": clean(self.f1)}

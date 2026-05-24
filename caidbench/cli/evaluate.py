@@ -23,31 +23,34 @@ def main() -> None:
         checkpoint_task_index = int(ckpt.get("task_index", row_index))
         after_task_name = trainer.scenario.tasks[min(max(checkpoint_task_index, 0), row_index)].name if trainer.scenario.tasks else "checkpoint"
         eval_payload: dict[str, float | int] = {}
+        eval_rows = []
         for j in range(len(trainer.scenario.tasks)):
             loader = trainer.dataloader(j, "test", shuffle=False)
             metrics = trainer.evaluate_loader(loader)
-            trainer.metric_matrix.update(row_index, j, metrics["acc"], metrics["auc"])
-            trainer.eval_records.append(
-                {
-                    "after_task": checkpoint_task_index,
-                    "after_task_name": after_task_name,
-                    "eval_task": j,
-                    "eval_task_name": trainer.scenario.tasks[j].name,
-                    "acc": metrics["acc"],
-                    "auc": metrics["auc"],
-                    "ece": metrics["ece"],
-                }
-            )
-            eval_payload[f"eval/task_{j}/acc"] = metrics["acc"]
-            eval_payload[f"eval/task_{j}/auc"] = metrics["auc"]
-            eval_payload[f"eval/task_{j}/ece"] = metrics["ece"]
+            trainer.metric_matrix.update(row_index, j, metrics["acc"], metrics["auc"], metrics["ap"], metrics["f1"])
+            record = {
+                "after_task": checkpoint_task_index,
+                "after_task_name": after_task_name,
+                "eval_task": j,
+                "eval_task_name": trainer.scenario.tasks[j].name,
+                "acc": metrics["acc"],
+                "auc": metrics["auc"],
+                "ap": metrics["ap"],
+                "f1": metrics["f1"],
+                "ece": metrics["ece"],
+            }
+            trainer.eval_records.append(record)
+            eval_rows.append(record)
         eval_payload.update(
             {
                 "eval/average_accuracy": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="acc"),
                 "eval/average_auc": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="auc"),
+                "eval/average_ap": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="ap"),
+                "eval/average_f1": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="f1"),
                 "eval/after_task": checkpoint_task_index,
             }
         )
+        trainer._log_eval_table(eval_rows, step=checkpoint_task_index)
         trainer.log_metrics(eval_payload, step=checkpoint_task_index)
         summary = trainer._write_outputs()
         trainer.log_metrics(
@@ -56,6 +59,10 @@ def main() -> None:
                 "summary/average_forgetting": summary["average_forgetting"],
                 "summary/average_auc": summary["average_auc"],
                 "summary/auc_forgetting": summary["auc_forgetting"],
+                "summary/average_ap": summary["average_ap"],
+                "summary/ap_forgetting": summary["ap_forgetting"],
+                "summary/average_f1": summary["average_f1"],
+                "summary/f1_forgetting": summary["f1_forgetting"],
             }
         )
         print(json.dumps(summary, indent=2, ensure_ascii=False))

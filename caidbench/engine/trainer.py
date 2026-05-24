@@ -117,7 +117,7 @@ class Trainer:
             logits_list.append(out["logits"].detach().cpu())
             y_list.append(batch["y"].detach().cpu())
         if not logits_list:
-            return {"acc": float("nan"), "auc": float("nan"), "ece": float("nan")}
+            return {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan")}
         logits = torch.cat(logits_list, dim=0)
         y = torch.cat(y_list, dim=0)
         return summarize_logits(logits, y)
@@ -125,16 +125,8 @@ class Trainer:
     def run(self) -> dict[str, Any]:
         try:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
-            self.log_metrics({"run/started": 1})
             for i, task in enumerate(self.scenario.tasks):
                 self.logger.info("=== Task %d/%d: %s train=%d test=%d ===", i + 1, len(self.scenario.tasks), task.name, task.num_train, task.num_test)
-                self.log_metrics(
-                    {
-                        "task/index": i,
-                        "task/train_samples": task.num_train,
-                        "task/test_samples": task.num_test,
-                    }
-                )
                 train_loader = self.dataloader(i, "train", shuffle=True)
                 val_loader = self.dataloader(i, "val", shuffle=False) if task.num_val > 0 else None
                 self.method.before_task(task, train_loader)
@@ -144,32 +136,43 @@ class Trainer:
                     self.default_train_loop(self.method, task, train_loader)
                 self.method.after_task(task, train_loader)
                 eval_payload: dict[str, float | int] = {}
+                eval_rows: list[dict[str, Any]] = []
                 for j in range(i + 1):
                     test_loader = self.dataloader(j, "test", shuffle=False)
                     metrics = self.evaluate_loader(test_loader)
-                    self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"])
-                    self.logger.info("eval after_task=%d on_task=%d acc=%.4f auc=%.4f", i, j, metrics["acc"], metrics["auc"])
-                    self.eval_records.append(
-                        {
-                            "after_task": i,
-                            "after_task_name": task.name,
-                            "eval_task": j,
-                            "eval_task_name": self.scenario.tasks[j].name,
-                            "acc": metrics["acc"],
-                            "auc": metrics["auc"],
-                            "ece": metrics["ece"],
-                        }
+                    self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"], metrics["ap"], metrics["f1"])
+                    self.logger.info(
+                        "eval after_task=%d on_task=%d acc=%.4f auc=%.4f ap=%.4f f1=%.4f",
+                        i,
+                        j,
+                        metrics["acc"],
+                        metrics["auc"],
+                        metrics["ap"],
+                        metrics["f1"],
                     )
-                    eval_payload[f"eval/task_{j}/acc"] = metrics["acc"]
-                    eval_payload[f"eval/task_{j}/auc"] = metrics["auc"]
-                    eval_payload[f"eval/task_{j}/ece"] = metrics["ece"]
+                    record = {
+                        "after_task": i,
+                        "after_task_name": task.name,
+                        "eval_task": j,
+                        "eval_task_name": self.scenario.tasks[j].name,
+                        "acc": metrics["acc"],
+                        "auc": metrics["auc"],
+                        "ap": metrics["ap"],
+                        "f1": metrics["f1"],
+                        "ece": metrics["ece"],
+                    }
+                    self.eval_records.append(record)
+                    eval_rows.append(record)
                 eval_payload.update(
                     {
                         "eval/average_accuracy": self.metric_matrix.average_accuracy(train_index=i, kind="acc"),
                         "eval/average_auc": self.metric_matrix.average_accuracy(train_index=i, kind="auc"),
+                        "eval/average_ap": self.metric_matrix.average_accuracy(train_index=i, kind="ap"),
+                        "eval/average_f1": self.metric_matrix.average_accuracy(train_index=i, kind="f1"),
                         "eval/after_task": i,
                     }
                 )
+                self._log_eval_table(eval_rows, step=i)
                 self.log_metrics(eval_payload, step=i)
                 self._save_intermediate(i)
             summary = self._write_outputs()
@@ -179,9 +182,20 @@ class Trainer:
                     "summary/average_forgetting": summary["average_forgetting"],
                     "summary/average_auc": summary["average_auc"],
                     "summary/auc_forgetting": summary["auc_forgetting"],
+                    "summary/average_ap": summary["average_ap"],
+                    "summary/ap_forgetting": summary["ap_forgetting"],
+                    "summary/average_f1": summary["average_f1"],
+                    "summary/f1_forgetting": summary["f1_forgetting"],
                 }
             )
-            self.logger.info("Finished: AA=%.4f AF=%.4f AUC_AA=%.4f", summary["average_accuracy"], summary["average_forgetting"], summary["average_auc"])
+            self.logger.info(
+                "Finished: AA=%.4f AF=%.4f AUC_AA=%.4f AP_AA=%.4f F1_AA=%.4f",
+                summary["average_accuracy"],
+                summary["average_forgetting"],
+                summary["average_auc"],
+                summary["average_ap"],
+                summary["average_f1"],
+            )
             return summary
         finally:
             self.experiment.finish()
@@ -199,14 +213,18 @@ class Trainer:
 
     def _write_outputs(self) -> dict[str, Any]:
         tables = self.metric_matrix.to_tables()
-        pd.DataFrame(tables["acc"], columns=[t.name for t in self.scenario.tasks]).to_csv(self.output_dir / "acc_matrix.csv", index=False)
-        pd.DataFrame(tables["auc"], columns=[t.name for t in self.scenario.tasks]).to_csv(self.output_dir / "auc_matrix.csv", index=False)
+        for kind in ("acc", "auc", "ap", "f1"):
+            pd.DataFrame(tables[kind], columns=[t.name for t in self.scenario.tasks]).to_csv(self.output_dir / f"{kind}_matrix.csv", index=False)
         summary = {
             "tasks": [t.__dict__ for t in self.scenario.tasks],
             "average_accuracy": self.metric_matrix.average_accuracy(kind="acc"),
             "average_forgetting": self.metric_matrix.average_forgetting(kind="acc"),
             "average_auc": self.metric_matrix.average_accuracy(kind="auc"),
             "auc_forgetting": self.metric_matrix.average_forgetting(kind="auc"),
+            "average_ap": self.metric_matrix.average_accuracy(kind="ap"),
+            "ap_forgetting": self.metric_matrix.average_forgetting(kind="ap"),
+            "average_f1": self.metric_matrix.average_accuracy(kind="f1"),
+            "f1_forgetting": self.metric_matrix.average_forgetting(kind="f1"),
             "tables": tables,
         }
         with open(self.output_dir / "summary.json", "w", encoding="utf-8") as f:
@@ -226,10 +244,30 @@ class Trainer:
             return ""
         return round(value_float, 6)
 
+    def _log_eval_table(self, records: list[Mapping[str, Any]], step: int | None = None) -> None:
+        rows = [
+            [
+                record["after_task"],
+                record["after_task_name"],
+                record["eval_task"],
+                record["eval_task_name"],
+                self._table_value(record["acc"]),
+                self._table_value(record["ap"]),
+                self._table_value(record["f1"]),
+            ]
+            for record in records
+        ]
+        self.experiment.log_table(
+            "eval/task_metrics",
+            ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "ap", "f1"],
+            rows,
+            step=step,
+        )
+
     def _log_summary_tables(self, summary: Mapping[str, Any]) -> None:
         task_names = [t.name for t in self.scenario.tasks]
         headers = ["after_task"] + task_names
-        for kind in ("acc", "auc"):
+        for kind in ("acc", "auc", "ap", "f1"):
             rows = [
                 [row_idx] + [self._table_value(value) for value in row]
                 for row_idx, row in enumerate(summary["tables"][kind])
@@ -244,13 +282,15 @@ class Trainer:
                 record["eval_task_name"],
                 self._table_value(record["acc"]),
                 self._table_value(record["auc"]),
+                self._table_value(record["ap"]),
+                self._table_value(record["f1"]),
                 self._table_value(record["ece"]),
             ]
             for record in self.eval_records
         ]
         self.experiment.log_table(
             "summary/eval_details",
-            ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "auc", "ece"],
+            ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "auc", "ap", "f1", "ece"],
             detail_rows,
         )
 

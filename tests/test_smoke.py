@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 import types
 from io import BytesIO
@@ -107,8 +108,14 @@ def test_registry_contains_methods():
 
 
 def test_finetune_smoke(tmp_path):
-    summary = Trainer(base_cfg(tmp_path, "finetune")).run()
+    cfg = base_cfg(tmp_path, "finetune")
+    summary = Trainer(cfg).run()
     assert "average_accuracy" in summary
+    assert "average_ap" in summary
+    assert "average_f1" in summary
+    out_dir = Path(cfg["output_dir"])
+    assert (out_dir / "ap_matrix.csv").exists()
+    assert (out_dir / "f1_matrix.csv").exists()
 
 
 def test_preextracted_feature_interfaces_are_rejected(tmp_path):
@@ -157,26 +164,33 @@ def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
     assert calls["init"]
     assert calls["init"][0]["project"] == "CAIDBench"
     assert calls["init"][0]["mode"] == "cloud"
+    assert re.fullmatch(r"finetune-out_finetune-\d{8}-\d{6}-\d{3}", calls["init"][0]["experiment_name"])
+    assert not any("run/started" in data for data, _ in calls["log"])
+    assert not any(any(key.startswith("task/") for key in data) for data, _ in calls["log"])
+    assert not any(any(key.startswith("eval/task_") and key.count("/") > 1 for key in data) for data, _ in calls["log"])
     assert any("summary/average_accuracy" in data for data, _ in calls["log"])
     eval_curves = [
         (
             data["eval/after_task"],
             step,
-            sorted(key for key in data if key.startswith("eval/task_") and key.endswith("/acc")),
         )
         for data, step in calls["log"]
         if "eval/average_accuracy" in data
     ]
     assert eval_curves == [
-        (0, 0, ["eval/task_0/acc"]),
-        (1, 1, ["eval/task_0/acc", "eval/task_1/acc"]),
+        (0, 0),
+        (1, 1),
     ]
     table_logs = {next(iter(data)): next(iter(data.values())) for data, _ in calls["log"] if len(data) == 1}
+    assert table_logs["eval/task_metrics"].headers == ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "ap", "f1"]
+    assert len(table_logs["eval/task_metrics"].rows) == 2
     assert table_logs["summary/acc_matrix"].headers == ["after_task", "task0", "task1"]
     assert len(table_logs["summary/acc_matrix"].rows) == 2
     assert table_logs["summary/acc_matrix"].rows[0][0] == 0
     assert table_logs["summary/acc_matrix"].rows[1][0] == 1
     assert table_logs["summary/auc_matrix"].headers == ["after_task", "task0", "task1"]
+    assert table_logs["summary/ap_matrix"].headers == ["after_task", "task0", "task1"]
+    assert table_logs["summary/f1_matrix"].headers == ["after_task", "task0", "task1"]
     assert table_logs["summary/eval_details"].headers == [
         "after_task",
         "after_task_name",
@@ -184,6 +198,8 @@ def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
         "eval_task_name",
         "acc",
         "auc",
+        "ap",
+        "f1",
         "ece",
     ]
     assert len(table_logs["summary/eval_details"].rows) == 3
@@ -210,6 +226,13 @@ def test_sprompts_smoke(tmp_path):
     cfg["method"]["prompt_length"] = 2
     cfg["method"]["num_centers"] = 2
     cfg["method"]["backbone"] = {"type": "timm", "name": "vit_tiny_patch16_224", "pretrained": False, "img_size": 16}
+    cfg["method"]["use_official_schedule"] = True
+    cfg["method"]["init_epoch"] = 1
+    cfg["method"]["init_milestones"] = [1]
+    cfg["method"]["init_lr_decay"] = 0.5
+    cfg["method"]["epochs"] = 1
+    cfg["method"]["milestones"] = [1]
+    cfg["method"]["lrate_decay"] = 0.5
     summary = Trainer(cfg).run()
     assert "average_accuracy" in summary
 

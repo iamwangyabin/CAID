@@ -170,9 +170,13 @@ class SPromptsMethod(ContinualMethod):
         use_official_schedule: bool = False,
         init_epoch: int | None = None,
         init_lr: float | None = None,
+        init_milestones: Sequence[int] | None = None,
+        init_lr_decay: float | None = None,
         init_weight_decay: float | None = None,
         epochs: int | None = None,
         lrate: float | None = None,
+        milestones: Sequence[int] | None = None,
+        lrate_decay: float | None = None,
         weight_decay: float | None = None,
         **kwargs: Any,
     ) -> None:
@@ -200,9 +204,13 @@ class SPromptsMethod(ContinualMethod):
         self.use_official_schedule = bool(use_official_schedule)
         self.init_epoch = init_epoch
         self.init_lr = init_lr
+        self.init_milestones = self._parse_milestones(init_milestones)
+        self.init_lr_decay = init_lr_decay
         self.init_weight_decay = init_weight_decay
         self.official_epochs = epochs
         self.lrate = lrate
+        self.milestones = self._parse_milestones(milestones)
+        self.lrate_decay = lrate_decay
         self.weight_decay = weight_decay
         self.current_prompt_key = "task0"
         self._known_classes = 0
@@ -237,6 +245,12 @@ class SPromptsMethod(ContinualMethod):
     @staticmethod
     def _center_name(key: str) -> str:
         return f"sprompt_centers_{key}"
+
+    @staticmethod
+    def _parse_milestones(milestones: Sequence[int] | None) -> list[int]:
+        if milestones is None:
+            return []
+        return [int(milestone) for milestone in milestones]
 
     def _add_official_task(self, key: str) -> None:
         if key in self.prompt_pool:
@@ -307,6 +321,21 @@ class SPromptsMethod(ContinualMethod):
         if self.official_epochs is not None:
             return int(self.official_epochs)
         return int(trainer.max_epochs)
+
+    def _configure_official_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler | None:
+        if not self.use_official_schedule:
+            return None
+        if self.current_task_id == 0:
+            milestones = self.init_milestones
+            decay = self.init_lr_decay
+        else:
+            milestones = self.milestones
+            decay = self.lrate_decay
+        milestones = [milestone for milestone in milestones if milestone > 0]
+        if not milestones:
+            return None
+        gamma = 1.0 if decay is None else float(decay)
+        return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
 
     def _selector_features(self, z: torch.Tensor) -> torch.Tensor:
         z = z.float()
@@ -405,8 +434,9 @@ class SPromptsMethod(ContinualMethod):
         self.train()
         optimizer = self.configure_optimizer(getattr(trainer, "optimizer_cfg", None))
         epochs = self._task_epochs(trainer)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
+        scheduler = self._configure_official_scheduler(optimizer)
         for epoch in range(epochs):
+            epoch_lr = float(optimizer.param_groups[0]["lr"])
             totals: dict[str, float] = {}
             n = 0
             for batch in train_loader:
@@ -421,7 +451,6 @@ class SPromptsMethod(ContinualMethod):
                     if torch.is_tensor(value) and value.ndim == 0:
                         totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
                 n += 1
-            scheduler.step()
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
                 trainer.logger.info(
@@ -436,9 +465,11 @@ class SPromptsMethod(ContinualMethod):
                         **{f"train/{k}": v for k, v in metrics.items()},
                         "train/task_index": float(getattr(task, "task_id", 0)),
                         "train/epoch": epoch + 1,
-                        "train/lr": float(optimizer.param_groups[0]["lr"]),
+                        "train/lr": epoch_lr,
                     }
                 )
+            if scheduler is not None:
+                scheduler.step()
         return True
 
     def _cluster_features(self, features: torch.Tensor) -> torch.Tensor:

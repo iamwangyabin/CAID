@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import importlib
 from pathlib import Path
 from typing import Any, Mapping
@@ -69,7 +70,9 @@ class SwanLabExperimentLogger:
                 "Install project dependencies or set logging.backend=none to disable experiment logging."
             ) from exc
 
-        experiment_name = raw.get("experiment_name") or raw.get("name") or f"{method_name}-{output_dir.name}"
+        base_experiment_name = str(raw.get("experiment_name") or raw.get("name") or f"{method_name}-{output_dir.name}")
+        timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+        experiment_name = f"{base_experiment_name}-{timestamp}"
         kwargs: dict[str, Any] = {
             "project": raw.get("project", "CAIDBench"),
             "experiment_name": experiment_name,

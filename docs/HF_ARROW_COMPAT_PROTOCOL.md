@@ -312,7 +312,7 @@ scenario:
         path: DIF
       - name: DiffusionForensics
         path: DiffusionForensics
-  protocol: protocols/examples/cddb_hard.yaml
+  protocol: protocols/examples/cddb_hard_arrow.yaml
 ```
 
 Recommended future config for one source per Hugging Face repository:
@@ -329,7 +329,7 @@ scenario:
         repo_id: nebula/DIF-arrow
       - name: Ojha
         repo_id: nebula/Ojha-arrow
-  protocol: protocols/examples/cddb_hard.yaml
+  protocol: protocols/examples/cddb_hard_arrow.yaml
 ```
 
 Current CAIDBench supports one remote Arrow/AID source through the regular
@@ -343,13 +343,13 @@ scenario:
     backend: aid_arrow
     image_column: image
     remote:
-      platform: huggingface   # or: modelscope
+      platform: modelscope    # or: huggingface
       repo_ids:
         huggingface: nebula/CDDB.arrow
         modelscope: yabinnng/CDDB.arrow
       local_dir: data/datasets/CDDB.arrow
       path_in_repo: .
-  protocol: protocols/examples/cddb_arrow_subsets.yaml
+  protocol: protocols/examples/cddb_hard_arrow.yaml
 ```
 
 If the upstream repository stores multiple source directories, set
@@ -360,7 +360,7 @@ Arrow/AID reader.
 The protocol continues to describe task order and task filtering:
 
 ```yaml
-name: cddb_hard
+name: cddb_hard_arrow
 tasks:
   - id: biggan
     name: BigGAN

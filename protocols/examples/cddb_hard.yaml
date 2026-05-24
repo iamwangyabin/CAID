@@ -1,8 +1,0 @@
-name: cddb_hard
-# Expected Arrow metadata columns: generator or domain, split, label.
-tasks:
-  - {id: gaugan, name: GauGAN, numeric_id: 0, filter: {include: {generator: GauGAN}}}
-  - {id: biggan, name: BigGAN, numeric_id: 1, filter: {include: {generator: BigGAN}}}
-  - {id: wild, name: WildDeepfake, numeric_id: 2, filter: {include: {generator: WildDeepfake}}}
-  - {id: whichface, name: WhichFaceReal, numeric_id: 3, filter: {include: {generator: WhichFaceReal}}}
-  - {id: san, name: SAN, numeric_id: 4, filter: {include: {generator: SAN}}}

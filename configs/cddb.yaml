@@ -1,4 +1,4 @@
-_base_: _base_arrow.yaml
+_base_: _base.yaml
 method:
   name: cddb
   binary_loss: sum_b_log

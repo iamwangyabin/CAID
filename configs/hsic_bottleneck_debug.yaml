@@ -1,4 +1,4 @@
-_base_: _base_arrow.yaml
+_base_: _base.yaml
 output_dir: outputs/hsic_debug
 scenario:
   transform:

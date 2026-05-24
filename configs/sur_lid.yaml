@@ -1,13 +1,8 @@
+_base_: _base.yaml
 seed: 512
-device: auto
 output_dir: outputs/sur_lid_official
 
 scenario:
-  data:
-    backend: aid_arrow
-    path: /path/to/deepfakebench_arrow
-    image_column: image
-  protocol: protocols/examples/sur_lid_p1.yaml
   transform:
     train:
       trsf:

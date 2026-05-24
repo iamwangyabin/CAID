@@ -1,55 +1,51 @@
-_base_: _base_arrow.yaml
-output_dir: outputs/sprompts_official
-scenario:
-  transform:
-    train:
-      trsf:
-        - _target_: caidbench.data.transforms.RandomResizedCrop
-          size: 224
-        - _target_: caidbench.data.transforms.RandomHorizontalFlip
-          p: 0.5
-        - _target_: caidbench.data.transforms.ColorJitter
-          brightness: 0.4
-          contrast: 0.4
-          saturation: 0.4
-        - _target_: caidbench.data.transforms.ToTensor
-        - _target_: caidbench.data.transforms.Normalize
-          mean: [0.485, 0.456, 0.406]
-          std: [0.229, 0.224, 0.225]
-    test:
-      trsf:
-        - _target_: caidbench.data.transforms.Resize
-          size: 256
-        - _target_: caidbench.data.transforms.CenterCrop
-          size: 224
-        - _target_: caidbench.data.transforms.ToTensor
-        - _target_: caidbench.data.transforms.Normalize
-          mean: [0.485, 0.456, 0.406]
-          std: [0.229, 0.224, 0.225]
+_base_: _base.yaml
+seed: 1993
+output_dir: outputs/sprompts_cddb_hard_official
+train:
+  epochs: 50
+  batch_size: 128
+  num_workers: 16
+  optimizer:
+    type: sgd
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 0.0005
 method:
   name: sprompts
   implementation: official
   net_type: slip
+  dataset: cddb
+  task_name: [gaugan, biggan, wild, whichfaceisreal, san]
+  multiclass: [0, 0, 0, 0, 0]
+  class_order: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  total_sessions: 7
+  memory_size: 0
+  memory_per_class: 0
+  fixed_memory: true
+  shuffle: false
+  init_cls: 2
+  increment: 2
+  embd_dim: 768
+  EPSILON: 1.0e-8
   prompt_length: 10
   num_centers: 5
   class_names: [real, fake]
   n_ctx: 16
   backbone:
     type: open_clip
-    model_name: ViT-B-16
+    model_name: ViT-B-16-quickgelu
     pretrained: openai
   train_backbone: false
   normalize_features: true
+  routing_metric: official_l1
   use_official_schedule: true
   init_epoch: 20
-  epochs: 20
-  init_lr: 0.01
-  lrate: 0.01
+  init_lr: 0.001
+  init_milestones: [20, 30, 40]
+  init_lr_decay: 0.1
   init_weight_decay: 0.0005
-  weight_decay: 0.0002
-train:
-  optimizer:
-    type: sgd
-    lr: 0.01
-    momentum: 0.9
-    weight_decay: 2.0e-4
+  lrate: 0.01
+  milestones: [20, 30]
+  lrate_decay: 0.1
+  epochs: 50
+  weight_decay: 2.0e-4

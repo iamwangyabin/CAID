@@ -1,0 +1,30 @@
+name: cddb_hard_arrow
+# Official S-Prompts CDDB-Hard seen-domain order:
+# gaugan -> biggan -> wild -> whichfaceisreal -> san.
+# The AID Arrow mirror stores train/val sidecars, so val is used as test.
+tasks:
+  - id: gaugan
+    name: GauGAN
+    numeric_id: 0
+    filter: {include: {subset: gaugan}}
+    test: {split: val, include: {subset: gaugan}}
+  - id: biggan
+    name: BigGAN
+    numeric_id: 1
+    filter: {include: {subset: biggan}}
+    test: {split: val, include: {subset: biggan}}
+  - id: wild
+    name: WildDeepfake
+    numeric_id: 2
+    filter: {include: {subset: wild}}
+    test: {split: val, include: {subset: wild}}
+  - id: whichfaceisreal
+    name: WhichFaceIsReal
+    numeric_id: 3
+    filter: {include: {subset: whichfaceisreal}}
+    test: {split: val, include: {subset: whichfaceisreal}}
+  - id: san
+    name: SAN
+    numeric_id: 4
+    filter: {include: {subset: san}}
+    test: {split: val, include: {subset: san}}

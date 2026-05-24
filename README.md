@@ -79,9 +79,13 @@ CAIDBench supports AID-style Arrow sources under `scenario.data`:
 scenario:
   data:
     backend: aid_arrow
-    path: /data/caid_arrow/deepfakebench_faces
     image_column: image
-  protocol: protocols/examples/sur_lid_p3.yaml
+    remote:
+      platform: modelscope
+      repo_ids:
+        modelscope: yabinnng/CDDB.arrow
+      local_dir: data/datasets/CDDB.arrow
+  protocol: protocols/examples/cddb_hard_arrow.yaml
   transform:
     trsf:
       - _target_: caidbench.data.transforms.SquareResize
@@ -99,7 +103,7 @@ caid-inspect-aid --root /path/to/AID_arrow_dataset
 ```
 
 Remote Hugging Face / ModelScope mirrors are configured under
-`scenario.data.remote`; see `configs/cddb_arrow_remote.yaml`.
+`scenario.data.remote`; see `configs/_base.yaml`.
 
 ## Methods
 
@@ -126,8 +130,8 @@ caidbench/
   memory/       replay buffer and exemplar selectors
   models/       backbones, adapters, LoRA, EKFN, detector heads
   methods/      continual method implementations
-configs/        method and dataset configs
-protocols/      YAML protocol examples
+configs/        shared base config plus one YAML per method
+protocols/      task protocol YAMLs; the current slim set keeps CDDB-Hard Arrow
 docs/           compatibility and method-mapping notes
 tests/          smoke and packaging tests
 ```

@@ -1,12 +1,32 @@
-_base_: _base.yaml
-output_dir: outputs/prompt2guard
+seed: 0
+device: auto
+output_dir: outputs/caidbench
+
+logging:
+  backend: swanlab
+  project: CAIDBench
+  mode: cloud
+
 scenario:
+  data:
+    backend: aid_arrow
+    image_column: image
+    remote:
+      platform: modelscope
+      repo_ids:
+        huggingface: nebula/CDDB.arrow
+        modelscope: yabinnng/CDDB.arrow
+      local_dir: data/datasets/CDDB.arrow
+      path_in_repo: .
+      max_workers: 16
+  protocol: protocols/examples/cddb_hard_arrow.yaml
   transform:
     train:
       trsf:
         - _target_: caidbench.data.transforms.RandomResizedCrop
           size: 224
         - _target_: caidbench.data.transforms.RandomHorizontalFlip
+          p: 0.5
         - _target_: caidbench.data.transforms.ColorJitter
           brightness: 0.24705882352941178
         - _target_: caidbench.data.transforms.ToTensor
@@ -17,39 +37,25 @@ scenario:
       trsf:
         - _target_: caidbench.data.transforms.Resize
           size: 256
-          interpolation: bicubic
         - _target_: caidbench.data.transforms.CenterCrop
           size: 224
         - _target_: caidbench.data.transforms.ToTensor
         - _target_: caidbench.data.transforms.Normalize
           mean: [0.485, 0.456, 0.406]
           std: [0.229, 0.224, 0.225]
+
 train:
-  epochs: 20
-  batch_size: 2
+  epochs: 1
+  batch_size: 32
+  num_workers: 4
   optimizer:
-    type: sgd
-    lr: 0.01
-    momentum: 0.9
-    weight_decay: 0.0002
+    type: adamw
+    lr: 1.0e-4
+    weight_decay: 1.0e-4
+
 method:
-  name: prompt2guard
-  model_name: ViT-B-16
-  pretrained: openai
-  K: 7
-  topk_classes: 5
-  ensembling: [false, false, true, false]
-  prototype: fake
-  prediction_mode: mix_top_mean
-  n_clusters: 5
-  label_smoothing: 0.1
-  # Optional official Prompt2Guard sidecar. When set, object labels are loaded
-  # from classes.pkl by matching batch["path"] against this mapping.
-  object_label_sidecar: null
-  object_label_root: null
-  init_lr: 0.01
-  lrate: 0.01
-  init_weight_decay: 0.0005
-  weight_decay: 0.0002
-  warmup_epoch: 1
-  warmup_lr: 1.0e-5
+  name: finetune
+  detector_cfg:
+    backbone:
+      type: small_conv
+      out_dim: 512

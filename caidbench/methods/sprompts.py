@@ -322,20 +322,10 @@ class SPromptsMethod(ContinualMethod):
             return int(self.official_epochs)
         return int(trainer.max_epochs)
 
-    def _configure_official_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler | None:
+    def _configure_official_scheduler(self, optimizer: torch.optim.Optimizer, epochs: int) -> torch.optim.lr_scheduler.LRScheduler | None:
         if not self.use_official_schedule:
             return None
-        if self.current_task_id == 0:
-            milestones = self.init_milestones
-            decay = self.init_lr_decay
-        else:
-            milestones = self.milestones
-            decay = self.lrate_decay
-        milestones = [milestone for milestone in milestones if milestone > 0]
-        if not milestones:
-            return None
-        gamma = 1.0 if decay is None else float(decay)
-        return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=int(epochs))
 
     def _selector_features(self, z: torch.Tensor) -> torch.Tensor:
         z = z.float()
@@ -434,7 +424,7 @@ class SPromptsMethod(ContinualMethod):
         self.train()
         optimizer = self.configure_optimizer(getattr(trainer, "optimizer_cfg", None))
         epochs = self._task_epochs(trainer)
-        scheduler = self._configure_official_scheduler(optimizer)
+        scheduler = self._configure_official_scheduler(optimizer, epochs)
         for epoch in range(epochs):
             epoch_lr = float(optimizer.param_groups[0]["lr"])
             totals: dict[str, float] = {}

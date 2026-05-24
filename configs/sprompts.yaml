@@ -41,6 +41,7 @@ method:
   use_official_schedule: true
   init_epoch: 20
   init_lr: 0.001
+  # Kept for official JSON compatibility; official S-Prompts training uses CosineAnnealingLR.
   init_milestones: [20, 30, 40]
   init_lr_decay: 0.1
   init_weight_decay: 0.0005

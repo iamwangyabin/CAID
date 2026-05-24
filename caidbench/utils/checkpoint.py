@@ -12,8 +12,11 @@ def save_checkpoint(path: str | Path, **payload: Any) -> None:
     torch.save(payload, path)
 
 
-def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu") -> dict[str, Any]:
-    obj = torch.load(path, map_location=map_location)
+def load_checkpoint(path: str | Path, map_location: str | torch.device = "cpu", *, weights_only: bool | None = True) -> dict[str, Any]:
+    try:
+        obj = torch.load(path, map_location=map_location, weights_only=weights_only)
+    except TypeError:  # Older torch releases do not accept weights_only.
+        obj = torch.load(path, map_location=map_location)
     if not isinstance(obj, dict):
         raise ValueError(f"Checkpoint {path} did not contain a dict")
     return obj

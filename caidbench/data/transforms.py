@@ -13,19 +13,21 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 CLIP_MEAN = (0.48145466, 0.4578275, 0.40821073)
 CLIP_STD = (0.26862954, 0.26130258, 0.27577711)
+_RESAMPLING = getattr(Image, "Resampling", Image)
+_TRANSPOSE = getattr(Image, "Transpose", Image)
 
 
-def _resampling(name: Any | None = None) -> Image.Resampling:
-    if isinstance(name, Image.Resampling):
+def _resampling(name: Any | None = None) -> int:
+    if isinstance(name, int):
         return name
     value = "bicubic" if name is None else str(name).split(".")[-1].lower()
     mapping = {
-        "nearest": Image.Resampling.NEAREST,
-        "bilinear": Image.Resampling.BILINEAR,
-        "bicubic": Image.Resampling.BICUBIC,
-        "box": Image.Resampling.BOX,
-        "hamming": Image.Resampling.HAMMING,
-        "lanczos": Image.Resampling.LANCZOS,
+        "nearest": _RESAMPLING.NEAREST,
+        "bilinear": _RESAMPLING.BILINEAR,
+        "bicubic": _RESAMPLING.BICUBIC,
+        "box": _RESAMPLING.BOX,
+        "hamming": _RESAMPLING.HAMMING,
+        "lanczos": _RESAMPLING.LANCZOS,
     }
     if value not in mapping:
         raise ValueError(f"Unsupported interpolation={name!r}; expected one of {sorted(mapping)}.")
@@ -211,7 +213,7 @@ class RandomHorizontalFlip:
 
     def __call__(self, img: Image.Image) -> Image.Image:
         img = _as_rgb(img)
-        return img.transpose(Image.Transpose.FLIP_LEFT_RIGHT) if random.random() < self.p else img
+        return img.transpose(_TRANSPOSE.FLIP_LEFT_RIGHT) if random.random() < self.p else img
 
 
 class ColorJitter:

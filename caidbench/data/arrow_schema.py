@@ -342,7 +342,7 @@ def read_caid_meta_sidecar(path: str | Path) -> pd.DataFrame | None:
 
 def _iter_aid_split_files(root: Path) -> list[Path]:
     skip = {AID_MAPPING_FILE, AID_INFO_FILE, AID_META_FILE, AID_INDEX_FILE, "dataset_info.json", "state.json", "dataset_dict.json"}
-    return sorted(p for p in root.glob("*.json") if p.name not in skip)
+    return sorted(p for p in root.glob("*.json") if p.name not in skip and not p.stem.endswith("_binary"))
 
 
 def read_aid_split_sidecars(path: str | Path) -> pd.DataFrame:

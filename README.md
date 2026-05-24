@@ -16,6 +16,7 @@ Optional extras:
 
 ```bash
 pip install -e ".[clip]"       # CLIP / open_clip backbones
+pip install -e ".[sprompts]"   # S-Prompts/OpenCLIP/timm paths
 pip install -e ".[hub]"        # remote Hugging Face / ModelScope mirrors
 pip install -e ".[dev]"        # tests
 ```
@@ -59,15 +60,16 @@ For local smoke tests or runs without experiment tracking, set
 A minimal AID-style metadata row contains:
 
 ```text
-path,label,split,task_id,domain,generator,scene
-/path/img1.jpg,0,train,0,progan,progan,object
-/path/img2.jpg,1,train,0,progan,progan,object
+path,label,split,dataset,domain,generator,manipulation,video_id,frame_idx,scene,task_hint,preprocess_profile
+/path/img1.jpg,0,train,cddb,progan,progan,unknown,,-1,object,task0,
+/path/img2.jpg,1,train,cddb,progan,progan,unknown,,-1,object,task0,
 ```
 
 `label=0` means real and `label=1` means fake. Training data is read from an
 AID-style Arrow directory; labels, splits, subsets, and task metadata are
 reconstructed from `mapping.json`, split JSON files, and optional
-`caid_meta.jsonl`.
+`caid_meta.jsonl`. Continual `task_id` values are derived from the YAML protocol
+at load time, not stored as required Arrow sidecar columns.
 
 ## Data Interfaces
 

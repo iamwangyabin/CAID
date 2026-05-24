@@ -51,9 +51,15 @@ def binary_auroc(logits: torch.Tensor | np.ndarray, y: torch.Tensor | np.ndarray
         return float(roc_auc_score(y_np, score))
     except Exception:
         # Rank-based fallback equivalent to Mann-Whitney U / AUC.
-        order = np.argsort(score)
+        order = np.argsort(score, kind="mergesort")
         ranks = np.empty_like(order, dtype=float)
-        ranks[order] = np.arange(1, len(score) + 1)
+        start = 0
+        while start < len(score):
+            end = start + 1
+            while end < len(score) and score[order[end]] == score[order[start]]:
+                end += 1
+            ranks[order[start:end]] = (start + 1 + end) / 2.0
+            start = end
         pos = y_np == 1
         n_pos = int(pos.sum())
         n_neg = int((~pos).sum())

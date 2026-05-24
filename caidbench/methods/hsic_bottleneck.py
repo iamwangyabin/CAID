@@ -50,7 +50,7 @@ class HSICBottleneckMethod(ContinualMethod):
         self._nuisance_to_id: dict[str, int] = {}
 
     def _nuisance_ids(self, batch: dict[str, Any], device: torch.device) -> torch.Tensor:
-        gens = batch.get("generator") or batch.get("domain")
+        gens = batch["generator"] if "generator" in batch else batch.get("domain")
         if gens is not None and not torch.is_tensor(gens):
             ids = []
             for g in gens:
@@ -61,7 +61,13 @@ class HSICBottleneckMethod(ContinualMethod):
             return torch.tensor(ids, dtype=torch.long, device=device)
         if torch.is_tensor(gens):
             return gens.long().to(device)
-        return batch["task_id"].long().to(device)
+        task_id = batch.get("task_id")
+        if torch.is_tensor(task_id):
+            return task_id.long().to(device)
+        size_source = batch.get("y", batch.get("x"))
+        batch_size = int(size_source.shape[0]) if torch.is_tensor(size_source) and size_source.ndim > 0 else 1
+        fallback = 0 if self.current_task_id is None else int(self.current_task_id)
+        return torch.full((batch_size,), fallback, dtype=torch.long, device=device)
 
     def observe(self, batch: dict[str, Any], task: Any | None = None) -> dict[str, torch.Tensor]:
         batch = batch_to_device(batch, self.device)

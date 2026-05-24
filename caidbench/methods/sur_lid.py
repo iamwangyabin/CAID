@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from ..registry import register_method
+from ..utils.checkpoint import load_checkpoint
 from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
 
 
@@ -56,7 +57,7 @@ def _supervised_contrastive_loss(features: torch.Tensor, labels: torch.Tensor, t
 
 def _kd_loss(student_logits: torch.Tensor, labels: torch.Tensor, teacher_logits: torch.Tensor, temperature: float = 20.0, alpha: float = 0.3) -> torch.Tensor:
     # The official release passes log-softmax teacher scores to KLDivLoss.
-    return nn.KLDivLoss()(
+    return nn.KLDivLoss(reduction="batchmean", log_target=True)(
         F.log_softmax(student_logits / temperature, dim=1),
         F.log_softmax(teacher_logits / temperature, dim=1),
     ) * (temperature * temperature * 2.0 * alpha) + F.cross_entropy(student_logits, labels.long()) * (1.0 - alpha)
@@ -191,7 +192,7 @@ class SURLIDMethod(ContinualMethod):
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"SUR-LID official checkpoint not found: {path}")
-        obj = torch.load(path, map_location="cpu")
+        obj = load_checkpoint(path, map_location="cpu")
         if isinstance(obj, dict):
             for key in ("state_dict", "model", "backbone", "net"):
                 if isinstance(obj.get(key), dict):
@@ -566,7 +567,7 @@ class SURLIDMethod(ContinualMethod):
         center_col = center.unsqueeze(-1)
         distance = torch.mm(z, center_col).squeeze()
         if self.replay_mode == "center":
-            return distance.topk(k // 2).indices.long()
+            return distance.topk(k).indices.long()
         order = torch.argsort(distance, descending=True)
         step = max(int(len(order) // max(k // 2, 1)), 1)
         if self.replay_mode == "sparse_robust":

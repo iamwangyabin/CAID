@@ -110,6 +110,31 @@ def _safe_metadata(table, skip_columns: set[str], sidecar: pd.DataFrame | None =
     df["_rowid"] = df["_rowid"].astype(int)
     return df.reset_index(drop=True)
 
+
+def _enrich_aid_sidecar(sidecar: pd.DataFrame, rich: pd.DataFrame | None) -> pd.DataFrame:
+    if rich is None or "path" not in rich.columns:
+        return sidecar
+    merge_keys = ["path"]
+    if "split" in sidecar.columns and "split" in rich.columns:
+        merge_keys.append("split")
+    rich_cols = [c for c in rich.columns if c in merge_keys or c != "_rowid"]
+    merged = sidecar.merge(rich[rich_cols], on=merge_keys, how="left", suffixes=("", "_rich"))
+    for col in [c for c in rich_cols if c not in merge_keys]:
+        rich_col = f"{col}_rich"
+        if rich_col not in merged.columns:
+            continue
+        if col == "label" and "label" in merged.columns:
+            base_label = pd.to_numeric(merged["label"], errors="coerce")
+            rich_label = pd.to_numeric(merged[rich_col], errors="coerce")
+            mask = base_label.eq(-1) & rich_label.notna()
+            merged.loc[mask, "label"] = rich_label[mask].astype(int)
+        elif col in merged.columns:
+            merged[col] = merged[rich_col].where(merged[rich_col].notna(), merged[col])
+        else:
+            merged[col] = merged[rich_col]
+        merged = merged.drop(columns=[rich_col])
+    return merged
+
 @dataclass
 class LoadedArrow:
     table: Any
@@ -222,17 +247,7 @@ class ArrowDataSource:
             # Strict AID compatibility: mapping.json + <split>.json are enough.
             sidecar = read_aid_split_sidecars(path_obj)
             # Optional CAID metadata, if present, enriches AID split metadata.
-            rich = read_caid_meta_sidecar(path_obj)
-            if rich is not None and "path" in rich.columns:
-                sidecar = sidecar.drop(columns=[c for c in sidecar.columns if c in rich.columns and c not in {"path", "split", "label", "_rowid"}], errors="ignore")
-                sidecar = sidecar.merge(rich.drop(columns=["split", "label"], errors="ignore"), on="path", how="left", suffixes=("", "_rich"))
-                for col in [c for c in sidecar.columns if c.endswith("_rich")]:
-                    base = col[:-5]
-                    if base not in sidecar.columns:
-                        sidecar[base] = sidecar[col]
-                    else:
-                        sidecar[base] = sidecar[col].where(sidecar[col].notna(), sidecar[base])
-                    sidecar = sidecar.drop(columns=[col])
+            sidecar = _enrich_aid_sidecar(sidecar, read_caid_meta_sidecar(path_obj))
         names = set(table.column_names)
         image_column = cfg.get("image_column")
         path_column = cfg.get("path_column")

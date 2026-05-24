@@ -74,6 +74,41 @@ def test_read_existing_aid_sidecars_exposes_subset_membership(tmp_path):
     assert int(train_b["_rowid"]) == 1
 
 
+def test_aid_binary_aliases_are_not_reimported_as_splits(tmp_path):
+    from caidbench.data.arrow_schema import read_aid_split_sidecars
+    import json
+
+    payload = {"all": {"a.png": 0}}
+    (tmp_path / "mapping.json").write_text(json.dumps({"a.png": 0}), encoding="utf-8")
+    (tmp_path / "train.json").write_text(json.dumps(payload), encoding="utf-8")
+    (tmp_path / "train_binary.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    df = read_aid_split_sidecars(tmp_path)
+    assert set(df["split"].tolist()) == {"train"}
+    assert len(df) == 1
+
+
+def test_list_style_aid_split_labels_are_enriched_from_caid_meta(tmp_path):
+    from caidbench.data.arrow import ArrowDataSource
+    import json
+    import pyarrow as pa
+    import pyarrow.ipc as ipc
+
+    table = pa.Table.from_pydict({"image": [b"fake-image-a", b"fake-image-b"]})
+    with pa.OSFile(str(tmp_path / "data.arrow"), "wb") as sink:
+        with ipc.new_file(sink, table.schema) as writer:
+            writer.write_table(table)
+    (tmp_path / "mapping.json").write_text(json.dumps({"a.png": 0, "b.png": 1}), encoding="utf-8")
+    (tmp_path / "train.json").write_text(json.dumps(["a.png", "b.png"]), encoding="utf-8")
+    with open(tmp_path / "caid_meta.jsonl", "w", encoding="utf-8") as fp:
+        fp.write(json.dumps({"path": "a.png", "split": "train", "label": 0, "generator": "realcam"}) + "\n")
+        fp.write(json.dumps({"path": "b.png", "split": "train", "label": 1, "generator": "sdxl"}) + "\n")
+
+    source = ArrowDataSource.from_config({"backend": "aid_arrow", "path": str(tmp_path), "image_column": "image"})
+    assert source.metadata.sort_values("_rowid")["label"].tolist() == [0, 1]
+    assert source.metadata.sort_values("_rowid")["generator"].tolist() == ["realcam", "sdxl"]
+
+
 def test_protocol_subset_filter_matches_aid_membership_strings():
     from caidbench.data.protocol import apply_filter
     import pandas as pd

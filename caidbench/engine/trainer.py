@@ -18,6 +18,7 @@ from ..utils.checkpoint import save_checkpoint
 from ..utils.experiment import build_experiment_logger
 from ..utils.logging import get_logger
 from ..utils.seed import seed_everything
+from ..utils.tensor import move_to_device
 
 
 class Trainer:
@@ -70,6 +71,7 @@ class Trainer:
             totals: dict[str, float] = {}
             n = 0
             for batch in train_loader:
+                batch = move_to_device(batch, self.device)
                 out = method.observe(batch, task)
                 loss = out["loss"]
                 optimizer.zero_grad(set_to_none=True)
@@ -110,6 +112,7 @@ class Trainer:
         logits_list: list[torch.Tensor] = []
         y_list: list[torch.Tensor] = []
         for batch in loader:
+            batch = move_to_device(batch, self.device)
             out = self.method.predict(batch)
             logits_list.append(out["logits"].detach().cpu())
             y_list.append(batch["y"].detach().cpu())
@@ -184,7 +187,15 @@ class Trainer:
             self.experiment.finish()
 
     def _save_intermediate(self, task_index: int) -> None:
-        save_checkpoint(self.output_dir / "last.pt", model=self.method.state_dict(), cfg=self.cfg, task_index=task_index)
+        payload = {
+            "model": self.method.state_dict(),
+            "auxiliary": self.method.auxiliary_state_dict(),
+            "cfg": self.cfg,
+            "task_index": task_index,
+            "global_step": self.global_step,
+        }
+        save_checkpoint(self.output_dir / f"task_{task_index}.pt", **payload)
+        save_checkpoint(self.output_dir / "last.pt", **payload)
 
     def _write_outputs(self) -> dict[str, Any]:
         tables = self.metric_matrix.to_tables()

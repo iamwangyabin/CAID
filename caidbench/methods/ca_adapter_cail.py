@@ -74,9 +74,9 @@ class ContentAgnosticAdapterCAIL(ContinualMethod):
         self._domain_to_id: dict[str, int] = {}
 
     def _domain_ids(self, batch: dict[str, Any], device: torch.device) -> torch.Tensor | None:
-        domains = batch.get("generator") or batch.get("domain")
+        domains = batch["generator"] if "generator" in batch else batch.get("domain")
         if domains is None or torch.is_tensor(domains):
-            return domains.to(device) if torch.is_tensor(domains) else None
+            return domains.long().to(device) if torch.is_tensor(domains) else None
         ids = []
         for d in domains:
             key = str(d)

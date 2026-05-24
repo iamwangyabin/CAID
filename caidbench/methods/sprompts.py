@@ -142,6 +142,7 @@ class OpenCLIPPromptLearner(nn.Module):
 
 @register_method("sprompts")
 @register_method("s_prompts")
+@register_method("s-prompts")
 class SPromptsMethod(ContinualMethod):
     """Official S-Prompts mechanics adapted to CAIDBench's method interface."""
 

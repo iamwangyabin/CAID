@@ -52,6 +52,10 @@ def apply_overrides(cfg: dict[str, Any], overrides: list[str]) -> dict[str, Any]
         target = cfg
         parts = key.split(".")
         for p in parts[:-1]:
-            target = target.setdefault(p, {})
+            if p not in target:
+                target[p] = {}
+            elif not isinstance(target[p], dict):
+                raise ValueError(f"Cannot apply override {key!r}: {p!r} is not a mapping")
+            target = target[p]
         target[parts[-1]] = value
     return cfg

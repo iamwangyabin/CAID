@@ -8,6 +8,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+from ..memory.replay import ReplayBuffer
 from ..models.heads import build_detector
 
 
@@ -97,6 +98,21 @@ class ContinualMethod(nn.Module, ABC):
 
     def frozen_detector_copy(self) -> nn.Module:
         return freeze_module(copy.deepcopy(self.detector).to(self.device))
+
+    def auxiliary_state_dict(self) -> dict[str, Any]:
+        return {
+            name: value.state_dict()
+            for name, value in self.__dict__.items()
+            if isinstance(value, ReplayBuffer)
+        }
+
+    def load_auxiliary_state_dict(self, state: dict[str, Any] | None) -> None:
+        if not state:
+            return
+        for name, payload in state.items():
+            value = getattr(self, name, None)
+            if isinstance(value, ReplayBuffer) and isinstance(payload, dict):
+                value.load_state_dict(payload)
 
     def predict(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:
         x = batch["x"].to(self.device)

@@ -6,12 +6,11 @@ scenario:
   transform:
     train:
       trsf:
-        - _target_: caidbench.data.transforms.RandomResizedCrop
+        - _target_: caidbench.data.transforms.Resize
+          size: 256
+          interpolation: bicubic
+        - _target_: caidbench.data.transforms.CenterCrop
           size: 224
-          scale: [0.05, 1.0]
-          ratio: [0.75, 1.3333333333333333]
-        - _target_: caidbench.data.transforms.RandomHorizontalFlip
-          p: 0.5
         - _target_: caidbench.data.transforms.ToTensor
     test:
       trsf:
@@ -34,6 +33,7 @@ method:
       type: timm
       name: vit_base_patch16_224_in21k
       pretrained: true
+      out_dim: null
   convnet_type: pretrained_vit_b16_224_in21k
   tuned_epoch: 0
   body_lr: 0.0

@@ -2,29 +2,32 @@ name: cddb_hard_official_overall_arrow
 # Official RanPAC Table 3 CDDB-Hard metric:
 # train one domain per task, but evaluate on the complete CDDB-Hard validation set
 # after every task. Use cddb_hard_arrow.yaml for per-domain Fig. A4-style analysis.
+_hard_val: &hard_val
+  split: val
+  include: {subset: [gaugan, biggan, wild, whichfaceisreal, san]}
 tasks:
   - id: gaugan
     name: GauGAN
     numeric_id: 0
     filter: {include: {subset: gaugan}}
-    test: {split: val}
+    test: *hard_val
   - id: biggan
     name: BigGAN
     numeric_id: 1
     filter: {include: {subset: biggan}}
-    test: {split: val}
+    test: *hard_val
   - id: wild
     name: WildDeepfake
     numeric_id: 2
     filter: {include: {subset: wild}}
-    test: {split: val}
+    test: *hard_val
   - id: whichfaceisreal
     name: WhichFaceIsReal
     numeric_id: 3
     filter: {include: {subset: whichfaceisreal}}
-    test: {split: val}
+    test: *hard_val
   - id: san
     name: SAN
     numeric_id: 4
     filter: {include: {subset: san}}
-    test: {split: val}
+    test: *hard_val

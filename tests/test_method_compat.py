@@ -6,6 +6,7 @@ from torch import nn
 
 from caidbench.methods.ca_adapter_cail import ContentAgnosticAdapterCAIL
 from caidbench.methods.hsic_bottleneck import HSICBottleneckMethod
+from caidbench.methods.official_dil import RidgeAccumulator
 from caidbench.methods.sur_lid import SURLIDMethod, _kd_loss
 
 
@@ -53,3 +54,22 @@ def test_sur_lid_center_replay_selects_requested_count():
     center = torch.ones(4)
     idx = method._select_sparse_uniform(z, center, k=1)
     assert idx.numel() == 1
+
+
+def test_layup_ridge_selection_uses_stratified_accuracy_cv():
+    ridge = RidgeAccumulator(feature_dim=2, num_classes=2)
+    x = torch.tensor(
+        [
+            [2.0, 0.1],
+            [1.8, 0.2],
+            [2.2, -0.1],
+            [1.9, 0.0],
+            [0.1, 2.0],
+            [0.2, 1.8],
+            [-0.1, 2.2],
+            [0.0, 1.9],
+        ]
+    )
+    y = torch.tensor([0, 0, 0, 0, 1, 1, 1, 1])
+    selected = ridge.select_ridge_stratified_accuracy(x, y, [1e-8, 1e8], n_splits=4)
+    assert selected == 1e-8

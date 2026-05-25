@@ -244,6 +244,58 @@ class RidgeAccumulator(nn.Module):
                 best = float(candidate)
         return best
 
+    @torch.no_grad()
+    def select_ridge_stratified_accuracy(
+        self,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        candidates: Sequence[float],
+        n_splits: int = 4,
+    ) -> float:
+        """Select ridge like official LayUP: stratified CV, maximize accuracy."""
+        if x.shape[0] < 4 or len(candidates) <= 1:
+            return float(candidates[0] if candidates else self.ridge)
+        y_cpu = y.detach().long().cpu()
+        labels_np = y_cpu.numpy()
+        _classes, counts = np.unique(labels_np, return_counts=True)
+        folds = min(int(n_splits), int(counts.min()) if len(counts) else 0)
+        if folds < 2:
+            return float(candidates[0] if candidates else self.ridge)
+
+        try:
+            from sklearn.model_selection import StratifiedKFold
+        except Exception:
+            return float(candidates[0] if candidates else self.ridge)
+
+        x_all = x.detach().to(dtype=self.dtype, device=self.gram.device)
+        y_onehot = _one_hot(y.to(self.gram.device), self.num_classes, dtype=self.dtype)
+        eye = torch.eye(self.feature_dim, device=self.gram.device, dtype=self.dtype)
+        accuracies = np.zeros(len(candidates), dtype=float)
+        split_count = 0
+        splitter = StratifiedKFold(n_splits=folds, shuffle=False)
+        for train_idx_np, val_idx_np in splitter.split(np.zeros(len(labels_np)), labels_np):
+            train_idx = torch.as_tensor(train_idx_np, dtype=torch.long, device=self.gram.device)
+            val_idx = torch.as_tensor(val_idx_np, dtype=torch.long, device=self.gram.device)
+            x_train = x_all.index_select(0, train_idx)
+            y_train = y_onehot.index_select(0, train_idx)
+            x_val = x_all.index_select(0, val_idx)
+            y_val = y.to(self.gram.device).long().index_select(0, val_idx)
+            g = self.gram + x_train.t().matmul(x_train)
+            c = self.cross + x_train.t().matmul(y_train)
+            for idx, candidate in enumerate(candidates):
+                try:
+                    w = torch.linalg.solve(g + float(candidate) * eye, c)
+                except RuntimeError:
+                    continue
+                pred = x_val.matmul(w).argmax(dim=1)
+                accuracies[idx] += float((pred == y_val).float().mean().item())
+            split_count += 1
+
+        if split_count == 0:
+            return float(candidates[0] if candidates else self.ridge)
+        accuracies /= float(split_count)
+        return float(candidates[int(np.argmax(accuracies))])
+
 
 class RandomProjection(nn.Module):
     def __init__(self, in_dim: int, out_dim: int, use_relu: bool = True) -> None:
@@ -352,6 +404,90 @@ class MultiLayerFeatureExtractor(nn.Module):
         return torch.cat(parts, dim=1).float()
 
 
+class _LayUPAdapter(nn.Module):
+    """AdaptFormer-style residual adapter used for LayUP first-session adaptation."""
+
+    def __init__(self, dim: int, bottleneck: int = 64, dropout: float = 0.1, scalar: float = 0.1) -> None:
+        super().__init__()
+        self.down_proj = nn.Linear(int(dim), int(bottleneck))
+        self.up_proj = nn.Linear(int(bottleneck), int(dim))
+        self.dropout = float(dropout)
+        self.scalar = float(scalar)
+        nn.init.kaiming_uniform_(self.down_proj.weight, a=math.sqrt(5))
+        nn.init.zeros_(self.up_proj.weight)
+        nn.init.zeros_(self.down_proj.bias)
+        nn.init.zeros_(self.up_proj.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = F.relu(self.down_proj(x))
+        z = F.dropout(z, p=self.dropout, training=self.training)
+        return self.scalar * self.up_proj(z)
+
+
+class _LayUPAdapterBlock(nn.Module):
+    """Thin wrapper that keeps the original ViT block and adds a trainable adapter branch."""
+
+    def __init__(self, block: nn.Module, dim: int, bottleneck: int = 64, dropout: float = 0.1, scalar: float = 0.1) -> None:
+        super().__init__()
+        self.block = block
+        self.adaptmlp = _LayUPAdapter(dim, bottleneck=bottleneck, dropout=dropout, scalar=scalar)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        required = ("norm1", "attn", "drop_path1", "ls1", "norm2", "mlp", "drop_path2", "ls2")
+        if not all(hasattr(self.block, name) for name in required):
+            out = self.block(x)
+            return out + self.adaptmlp(out)
+        x = x + self.block.drop_path1(self.block.ls1(self.block.attn(self.block.norm1(x))))
+        adapt_x = self.adaptmlp(x)
+        residual = x
+        x = self.block.drop_path2(self.block.ls2(self.block.mlp(self.block.norm2(x))))
+        return adapt_x + residual + x
+
+    def freeze(self, fully: bool = False) -> None:
+        for param in self.parameters():
+            param.requires_grad_(False)
+        if not fully:
+            for param in self.adaptmlp.parameters():
+                param.requires_grad_(True)
+
+
+def _timm_inner_model(backbone: nn.Module) -> nn.Module | None:
+    return getattr(backbone, "model", None)
+
+
+def _install_layup_adapters(backbone: nn.Module, bottleneck: int = 64, dropout: float = 0.1, scalar: float = 0.1) -> None:
+    model = _timm_inner_model(backbone)
+    blocks = getattr(model, "blocks", None) if model is not None else None
+    if blocks is None:
+        raise RuntimeError("LayUP finetune_method=adapter requires a timm ViT backbone with a blocks module.")
+    for idx, block in enumerate(blocks):
+        if isinstance(block, _LayUPAdapterBlock):
+            continue
+        dim = getattr(block, "dim", None)
+        if dim is None and hasattr(block, "attn"):
+            attn = getattr(block, "attn")
+            dim = int(getattr(attn, "num_heads")) * int(getattr(attn, "head_dim"))
+        if dim is None:
+            dim = int(getattr(model, "num_features", getattr(backbone, "out_dim")))
+        blocks[idx] = _LayUPAdapterBlock(block, int(dim), bottleneck=bottleneck, dropout=dropout, scalar=scalar)
+
+
+def _freeze_layup_backbone(backbone: nn.Module, fully: bool) -> None:
+    model = _timm_inner_model(backbone)
+    target = model if model is not None else backbone
+    called = False
+    for module in target.modules():
+        freeze_fn = getattr(module, "freeze", None)
+        if callable(freeze_fn):
+            freeze_fn(fully=fully)
+            called = True
+    if not called:
+        for param in backbone.parameters():
+            param.requires_grad_(not fully)
+    if fully:
+        backbone.eval()
+
+
 @register_method("layup")
 class LayUPMethod(FrozenFeatureMethod):
     """LayUP multi-layer feature ridge classifier."""
@@ -361,15 +497,42 @@ class LayUPMethod(FrozenFeatureMethod):
         k: int = 6,
         layer_names: Sequence[str] | None = None,
         ridge_candidates: Sequence[float] | None = None,
+        ridge_splits: int = 4,
         token_pool: str = "cls",
+        finetune_method: str = "none",
+        finetune_epochs: int = 20,
+        early_stopping: int = 5,
+        lr: float = 0.003,
+        weight_decay: float = 0.0005,
+        adapter_bottleneck: int = 64,
+        adapter_dropout: float = 0.1,
+        adapter_scalar: float = 0.1,
         **kwargs: Any,
     ) -> None:
         super().__init__(freeze_backbone=True, **kwargs)
+        self.finetune_method = str(finetune_method).lower()
+        self.finetune_epochs = int(finetune_epochs)
+        self.early_stopping = int(early_stopping)
+        self.fsa_lr = float(lr)
+        self.fsa_weight_decay = float(weight_decay)
+        self.fsa_done = False
+        if self.finetune_method in {"adaptformer", "adapter"}:
+            _install_layup_adapters(
+                self.detector.backbone,
+                bottleneck=int(adapter_bottleneck),
+                dropout=float(adapter_dropout),
+                scalar=float(adapter_scalar),
+            )
+            freeze_module(self.detector.head)
+            _freeze_layup_backbone(self.detector.backbone, fully=True)
+        elif self.finetune_method not in {"none", "no", "false", "off"}:
+            raise ValueError("LayUP currently supports finetune_method='none' or 'adapter'/'adaptformer'.")
         if layer_names is None:
             layer_names = self._default_vit_layers(int(k))
         self.layer_names = list(layer_names)
         self.feature_extractor = MultiLayerFeatureExtractor(self.detector, self.layer_names, token_pool=token_pool)
         self.ridge_candidates = list(ridge_candidates or [1e-8, *np.logspace(-4, 3, 15).tolist()])
+        self.ridge_splits = int(ridge_splits)
         self.ridge_head: RidgeAccumulator | None = None
 
     def _default_vit_layers(self, k: int) -> list[str]:
@@ -398,14 +561,102 @@ class LayUPMethod(FrozenFeatureMethod):
             return torch.empty(0, dim), torch.empty(0, dtype=torch.long)
         return torch.cat(features, dim=0), torch.cat(labels, dim=0)
 
+    def _uses_fsa(self) -> bool:
+        return self.finetune_method not in {"none", "no", "false", "off"}
+
+    @torch.no_grad()
+    def _evaluate_fsa_head(self, head: nn.Module, loader: Any) -> float:
+        self.detector.backbone.eval()
+        head.eval()
+        correct = 0
+        total = 0
+        for batch in loader:
+            batch = batch_to_device(batch, self.device)
+            z = self.detector.extract_features(batch["x"])
+            logits = 30.0 * head(z)
+            y = _local_targets(batch["y"], self.num_classes).to(logits.device)
+            correct += int((logits.argmax(dim=1) == y).sum().item())
+            total += int(y.numel())
+        return float(correct / max(total, 1))
+
+    def _run_fsa(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None) -> None:
+        if not self._uses_fsa() or self.fsa_done or _task_id(task) != 0:
+            return
+        _freeze_layup_backbone(self.detector.backbone, fully=False)
+        head = CosineLinear(int(self.detector.feature_dim), self.num_classes).to(self.device)
+        trainable = [p for p in self.detector.backbone.parameters() if p.requires_grad] + list(head.parameters())
+        if not trainable:
+            raise RuntimeError("LayUP FSA has no trainable PETL/head parameters.")
+        optimizer = torch.optim.AdamW(trainable, lr=self.fsa_lr, weight_decay=self.fsa_weight_decay)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(self.finetune_epochs, 1), eta_min=0.0)
+        eval_loader = val_loader if val_loader is not None else train_loader
+        best_acc = -1.0
+        best_state: dict[str, torch.Tensor] | None = None
+        epochs_without_improvement = 0
+        for epoch in range(max(self.finetune_epochs, 1)):
+            self.detector.backbone.train()
+            head.train()
+            total_loss = 0.0
+            total_correct = 0
+            total = 0
+            batches = 0
+            for batch in train_loader:
+                batch = batch_to_device(batch, self.device)
+                z = self.detector.extract_features(batch["x"])
+                logits = 30.0 * head(z)
+                y = _local_targets(batch["y"], self.num_classes).to(logits.device)
+                loss = F.cross_entropy(logits, y)
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+                trainer.advance_step()
+                total_loss += float(loss.detach().cpu())
+                total_correct += int((logits.detach().argmax(dim=1) == y).sum().item())
+                total += int(y.numel())
+                batches += 1
+            scheduler.step()
+            val_acc = self._evaluate_fsa_head(head, eval_loader)
+            train_acc = float(total_correct / max(total, 1))
+            trainer.logger.info(
+                "task=%s fsa_epoch=%d/%d loss=%.4f train_acc=%.4f val_acc=%.4f",
+                task.name,
+                epoch + 1,
+                max(self.finetune_epochs, 1),
+                total_loss / max(batches, 1),
+                train_acc,
+                val_acc,
+            )
+            trainer.log_metrics(
+                {
+                    "train/layup_fsa_loss": total_loss / max(batches, 1),
+                    "train/layup_fsa_acc": train_acc,
+                    "train/layup_fsa_val_acc": val_acc,
+                    "train/task_index": float(_task_id(task)),
+                    "train/epoch": epoch + 1,
+                }
+            )
+            if val_acc > best_acc:
+                best_acc = val_acc
+                best_state = {k: v.detach().cpu().clone() for k, v in self.detector.backbone.state_dict().items()}
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+            if epochs_without_improvement >= max(self.early_stopping, 1):
+                break
+        if best_state is not None:
+            self.detector.backbone.load_state_dict(best_state, strict=False)
+        _freeze_layup_backbone(self.detector.backbone, fully=True)
+        self.detector.backbone.eval()
+        self.fsa_done = True
+
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
-        del val_loader
+        self._run_fsa(trainer, task, train_loader, val_loader)
         x, y = self.collect_features(train_loader)
         x = x.to(self.device)
         y = y.to(self.device)
         if self.ridge_head is None:
             self.ridge_head = RidgeAccumulator(x.shape[1], self.num_classes).to(self.device)
-        ridge = self.ridge_head.select_ridge(x, y, self.ridge_candidates, val_fraction=0.25)
+        ridge = self.ridge_head.select_ridge_stratified_accuracy(x, y, self.ridge_candidates, n_splits=self.ridge_splits)
         self.ridge_head.update(x, y)
         self.ridge_head.solve(ridge)
         trainer.logger.info("task=%s layup_ridge=%.3g samples=%d dim=%d", task.name, ridge, y.numel(), x.shape[1])

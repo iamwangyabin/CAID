@@ -107,7 +107,7 @@ Use `method.name=dce` with `configs/dce.yaml`. CAIDBench implements the DCE expe
 
 Official reference: `laitifranz/Prompt2Guard@a89890203294d4f18051a3052b3a57f2e8d28d80`; key files are `src/methods/prompt2guard.py`, `src/models/slinet.py`, `src/models/clip/prompt_learner.py`, and `src/eval.py`.
 
-Use `method.name=prompt2guard` with raw 224x224 images and `pip install -e .[clip]`. The implementation follows the official SliNet path: frozen CLIP ViT-B/16, per-task text and image prompt learners, top-k object-conditioned text prompts, K-Means prototype keys after each task, and `mix_top_mean` inference aggregation. AID Arrow metadata must provide `object_labels` or `topk_object_labels` for every sample when `topk_classes > 0`.
+Use `method.name=prompt2guard` with raw 224x224 images and `pip install -e .[clip]`. The implementation follows the official SliNet path: frozen OpenAI CLIP `ViT-B/16`, per-task text and image prompt learners, top-k object-conditioned text prompts, K-Means prototype keys after each task, official prototype-derived task probability weighting, and `mix_top_mean` inference aggregation. AID Arrow metadata must provide `object_labels` or `topk_object_labels` for every sample when `topk_classes > 0`.
 
 The default `configs/prompt2guard.yaml` reads the official object-label sidecar from `data/sidecars/prompt2guard/classes.pkl`. Download it before running Prompt2Guard:
 

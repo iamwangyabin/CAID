@@ -23,7 +23,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-clip = ["transformers>=4.40", "open_clip_torch>=2.24"]
+clip = [
+  "clip @ git+https://github.com/openai/CLIP.git",
+  "open_clip_torch>=2.24",
+  "transformers>=4.40",
+  "ftfy>=6.1",
+  "regex>=2023.0",
+  "tqdm>=4.0",
+  "torchvision>=0.14",
+]
 sprompts = ["timm>=0.9", "open_clip_torch>=2.24"]
 hub = ["huggingface_hub>=0.23", "modelscope>=1.16"]
 dev = ["pytest>=7.0"]

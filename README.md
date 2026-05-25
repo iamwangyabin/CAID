@@ -15,7 +15,7 @@ pip install -e .
 Optional extras:
 
 ```bash
-pip install -e ".[clip]"       # CLIP / open_clip backbones
+pip install -e ".[clip]"       # official OpenAI CLIP plus CLIP/OpenCLIP backbones
 pip install -e ".[sprompts]"   # S-Prompts/OpenCLIP/timm paths
 pip install -e ".[hub]"        # remote Hugging Face / ModelScope mirrors
 pip install -e ".[dev]"        # tests

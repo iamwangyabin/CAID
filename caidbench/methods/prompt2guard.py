@@ -59,17 +59,41 @@ class SliNet(nn.Module):
         topk_classes: int = 5,
         ensembling: tuple[bool, bool, bool, bool] | list[bool] = (False, False, True, False),
         class_names: tuple[str, str] | list[str] = ("real", "fake"),
+        precision: str = "fp16",
     ) -> None:
         super().__init__()
         try:
-            import open_clip  # type: ignore
+            import clip  # type: ignore
+            from clip import clip as clip_impl  # type: ignore
         except Exception as e:  # pragma: no cover - optional dependency
-            raise ImportError("Install CAIDBench with `pip install -e .[clip]` to use method.name=prompt2guard.") from e
+            raise ImportError(
+                "Install CAIDBench with `pip install -e .[clip]` to use method.name=prompt2guard. "
+                "Prompt2Guard uses the official OpenAI CLIP wrapper, not OpenCLIP."
+            ) from e
 
-        pretrained_name = pretrained if isinstance(pretrained, str) else (None if pretrained in {False, None} else "openai")
-        self.clip_model = open_clip.create_model(model_name, pretrained=pretrained_name)
-        self.tokenizer = open_clip.get_tokenizer(model_name)
-        self.model_name = str(model_name)
+        official_name = self._official_clip_name(model_name)
+        pretrained_path = Path(pretrained).expanduser() if isinstance(pretrained, str) else None
+        local_model_path = Path(str(model_name)).expanduser()
+        if pretrained not in {None, False, "openai"} and pretrained_path is not None and pretrained_path.exists():
+            model_path = str(pretrained_path)
+        elif official_name in clip_impl._MODELS:
+            model_path = clip_impl._download(clip_impl._MODELS[official_name])
+        elif local_model_path.exists():
+            model_path = str(local_model_path)
+        else:
+            raise ValueError(f"Unknown OpenAI CLIP model {model_name!r}; available models: {clip.available_models()}")
+
+        try:
+            jit_model = torch.jit.load(model_path, map_location="cpu").eval()
+            state_dict = jit_model.state_dict()
+        except RuntimeError:
+            state_dict = torch.load(model_path, map_location="cpu")
+        self.clip_model = clip_impl.build_model(state_dict)
+        if str(precision).lower() == "fp32":
+            self.clip_model.float()
+        self.tokenizer = clip.tokenize
+        self.model_name = official_name
+        self.precision = str(precision).lower()
         self.K = int(k)
         self.topk_classes = int(topk_classes)
         if self.topk_classes > 5:
@@ -110,6 +134,35 @@ class SliNet(nn.Module):
         self.len_prompts: torch.Tensor | None = None
         self.text_mask: torch.Tensor | None = None
         self.visual_mask: torch.Tensor | None = None
+
+    @staticmethod
+    def _official_clip_name(model_name: str) -> str:
+        aliases = {
+            "vit-b-16": "ViT-B/16",
+            "vit-b/16": "ViT-B/16",
+            "vit-b-32": "ViT-B/32",
+            "vit-b/32": "ViT-B/32",
+            "rn50": "RN50",
+            "rn101": "RN101",
+            "rn50x4": "RN50x4",
+            "rn50x16": "RN50x16",
+        }
+        return aliases.get(str(model_name).lower(), str(model_name))
+
+    @staticmethod
+    def _set_transformer_mask(transformer: nn.Module, attn_mask: torch.Tensor | None) -> None:
+        if hasattr(transformer, "resblocks"):
+            for block in transformer.resblocks:
+                if hasattr(block, "attn_mask"):
+                    block.attn_mask = attn_mask
+
+    @classmethod
+    def _forward_transformer(cls, transformer: nn.Module, x: torch.Tensor, attn_mask: torch.Tensor | None) -> torch.Tensor:
+        try:
+            return transformer(x, attn_mask)
+        except TypeError:
+            cls._set_transformer_mask(transformer, attn_mask)
+            return transformer(x)
 
     @property
     def feature_dim(self) -> int:
@@ -285,7 +338,9 @@ class SliNet(nn.Module):
         for i in range(prompt_count):
             text_x[rows, self.len_prompts.to(self.device) + i, :] = text_prompt[i, :].repeat(text_x.shape[0], 1)
 
-        text_x = self.clip_model.transformer(text_x, self.text_mask)
+        text_x = text_x.permute(1, 0, 2)
+        text_x = self._forward_transformer(self.clip_model.transformer, text_x, self.text_mask)
+        text_x = text_x.permute(1, 0, 2)
         text_x = self.clip_model.ln_final(text_x).type(self.dtype)
 
         features = []
@@ -324,7 +379,9 @@ class SliNet(nn.Module):
         x = x + self.clip_model.visual.positional_embedding.to(device=self.device, dtype=self.dtype)
         x = torch.cat([x, image_prompt], dim=1)
         x = self.clip_model.visual.ln_pre(x)
-        x = self.clip_model.visual.transformer(x, self.visual_mask)
+        x = x.permute(1, 0, 2)
+        x = self._forward_transformer(self.clip_model.visual.transformer, x, self.visual_mask)
+        x = x.permute(1, 0, 2)
         prompt_tokens = self.clip_model.visual.ln_post(x[:, -image_prompt.shape[1] :, :])
         image_cls = self.clip_model.visual.ln_post(x[:, 0, :])
         visual_proj = self.clip_model.visual.proj
@@ -336,7 +393,9 @@ class SliNet(nn.Module):
 
     def extract_vector(self, image: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
-            features = self.clip_model.encode_image(image.to(device=self.device, dtype=self.dtype), normalize=True)
+            self._set_transformer_mask(self.clip_model.visual.transformer, None)
+            features = self.clip_model.encode_image(image.to(device=self.device, dtype=self.dtype))
+            features = F.normalize(features, dim=-1)
         return features.float()
 
     def forward(self, image: torch.Tensor, object_labels: Any) -> dict[str, torch.Tensor]:
@@ -385,7 +444,6 @@ class SliNet(nn.Module):
         text_f = F.normalize(self.text_encoder(text_prompts), dim=-1)
         img_f, image_features = self.image_encoder(image, img_prompts)
         img_f = F.normalize(img_f, dim=-1)
-        image_features = F.normalize(image_features, dim=-1)
 
         prob_dist = {
             "real": self.convert_to_prob_distribution(keys_dict["real_keys_one_cluster"], image_features),
@@ -408,6 +466,7 @@ class SliNet(nn.Module):
             logits = []
             for t in range(total_tasks):
                 logits_tmp = torch.zeros(img_f.shape[0], 2, device=self.device, dtype=img_f.dtype)
+                # Official Prompt2Guard weights both image and text prompt features with the selected task probability.
                 image_weight = task_prob[:, t].unsqueeze(-1).to(img_f.dtype)
                 text_weight = image_weight.unsqueeze(-1).unsqueeze(-1)
                 for k in range(self.K):
@@ -429,6 +488,7 @@ class SliNet(nn.Module):
         logits = []
         for t in range(total_tasks):
             logits_tmp = torch.zeros(img_f.shape[0], 2, device=self.device, dtype=img_f.dtype)
+            # Official Prompt2Guard weights both image and text prompt features with the selected task probability.
             image_weight = task_prob[:, t].unsqueeze(-1).to(img_f.dtype)
             text_weight = image_weight.unsqueeze(-1)
             for k in range(self.K):
@@ -455,6 +515,7 @@ class Prompt2GuardMethod(ContinualMethod):
         topk_classes: int = 5,
         ensembling: tuple[bool, bool, bool, bool] | list[bool] = (False, False, True, False),
         class_names: tuple[str, str] | list[str] = ("real", "fake"),
+        precision: str = "fp16",
         prototype: str = "fake",
         prediction_mode: str = "mix_top_mean",
         n_clusters: int = 5,
@@ -480,6 +541,7 @@ class Prompt2GuardMethod(ContinualMethod):
             topk_classes=topk_classes,
             ensembling=ensembling,
             class_names=class_names,
+            precision=precision,
         )
         self.prototype = str(prototype).lower()
         self.prediction_mode = str(prediction_mode).lower()
@@ -633,17 +695,18 @@ class Prompt2GuardMethod(ContinualMethod):
         features = F.normalize(features.float(), dim=-1).detach().cpu()
         if features.numel() == 0:
             return features.reshape(0, self.network.feature_dim)
-        unique = np.unique(features.numpy(), axis=0)
+        values = features.numpy()
+        unique = np.unique(values, axis=0)
         n_clusters = min(max(int(n_clusters), 1), len(unique))
         if n_clusters == 1:
-            centers = unique[:1]
+            centers = values.mean(axis=0, keepdims=True)
         else:
             try:
-                km = KMeans(n_clusters=n_clusters, random_state=0, n_init="auto").fit(unique)
+                km = KMeans(n_clusters=n_clusters, random_state=0, n_init="auto").fit(values)
             except TypeError:  # scikit-learn < 1.4
-                km = KMeans(n_clusters=n_clusters, random_state=0, n_init=10).fit(unique)
+                km = KMeans(n_clusters=n_clusters, random_state=0, n_init=10).fit(values)
             centers = km.cluster_centers_
-        return F.normalize(torch.as_tensor(centers, dtype=torch.float32), dim=-1)
+        return torch.as_tensor(centers, dtype=torch.float32)
 
     def _buffer_name(self, kind: str, task_index: int) -> str:
         return f"prompt2guard_{kind}_{task_index}"

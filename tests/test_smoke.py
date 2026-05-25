@@ -201,8 +201,9 @@ def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
         (1, 1),
     ]
     table_logs = {next(iter(data)): next(iter(data.values())) for data, _ in calls["log"] if len(data) == 1}
-    assert table_logs["eval/task_metrics"].headers == ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "ap", "f1"]
+    assert table_logs["eval/task_metrics"].headers == ["after_task", "after_task_name", "eval_task", "eval_task_name", "num_samples", "acc", "ap", "f1"]
     assert len(table_logs["eval/task_metrics"].rows) == 2
+    assert [row[4] for row in table_logs["eval/task_metrics"].rows] == [2, 2]
     assert table_logs["summary/acc_matrix"].headers == ["after_task", "task0", "task1"]
     assert len(table_logs["summary/acc_matrix"].rows) == 2
     assert table_logs["summary/acc_matrix"].rows[0][0] == 0
@@ -215,6 +216,7 @@ def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
         "after_task_name",
         "eval_task",
         "eval_task_name",
+        "num_samples",
         "acc",
         "auc",
         "ap",
@@ -222,6 +224,7 @@ def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
         "ece",
     ]
     assert len(table_logs["summary/eval_details"].rows) == 3
+    assert [row[4] for row in table_logs["summary/eval_details"].rows] == [2, 2, 2]
     assert table_logs["summary/task_details"].headers == [
         "index",
         "task_id",

@@ -38,6 +38,7 @@ def main() -> None:
                 "ap": metrics["ap"],
                 "f1": metrics["f1"],
                 "ece": metrics["ece"],
+                "num_samples": metrics["num_samples"],
             }
             trainer.eval_records.append(record)
             eval_rows.append(record)

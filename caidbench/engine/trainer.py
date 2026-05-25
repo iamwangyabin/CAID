@@ -107,7 +107,7 @@ class Trainer:
         self.experiment.log(metrics, step=self.global_step if step is None else step)
 
     @torch.no_grad()
-    def evaluate_loader(self, loader) -> dict[str, float]:
+    def evaluate_loader(self, loader) -> dict[str, float | int]:
         self.method.eval()
         logits_list: list[torch.Tensor] = []
         y_list: list[torch.Tensor] = []
@@ -117,10 +117,10 @@ class Trainer:
             logits_list.append(out["logits"].detach().cpu())
             y_list.append(batch["y"].detach().cpu())
         if not logits_list:
-            return {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan")}
+            return {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan"), "num_samples": 0}
         logits = torch.cat(logits_list, dim=0)
         y = torch.cat(y_list, dim=0)
-        return summarize_logits(logits, y)
+        return {**summarize_logits(logits, y), "num_samples": int(y.numel())}
 
     def run(self) -> dict[str, Any]:
         try:
@@ -160,6 +160,7 @@ class Trainer:
                         "ap": metrics["ap"],
                         "f1": metrics["f1"],
                         "ece": metrics["ece"],
+                        "num_samples": metrics["num_samples"],
                     }
                     self.eval_records.append(record)
                     eval_rows.append(record)
@@ -251,6 +252,7 @@ class Trainer:
                 record["after_task_name"],
                 record["eval_task"],
                 record["eval_task_name"],
+                self._table_value(record["num_samples"]),
                 self._table_value(record["acc"]),
                 self._table_value(record["ap"]),
                 self._table_value(record["f1"]),
@@ -259,7 +261,7 @@ class Trainer:
         ]
         self.experiment.log_table(
             "eval/task_metrics",
-            ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "ap", "f1"],
+            ["after_task", "after_task_name", "eval_task", "eval_task_name", "num_samples", "acc", "ap", "f1"],
             rows,
             step=step,
         )
@@ -280,6 +282,7 @@ class Trainer:
                 record["after_task_name"],
                 record["eval_task"],
                 record["eval_task_name"],
+                self._table_value(record["num_samples"]),
                 self._table_value(record["acc"]),
                 self._table_value(record["auc"]),
                 self._table_value(record["ap"]),
@@ -290,7 +293,7 @@ class Trainer:
         ]
         self.experiment.log_table(
             "summary/eval_details",
-            ["after_task", "after_task_name", "eval_task", "eval_task_name", "acc", "auc", "ap", "f1", "ece"],
+            ["after_task", "after_task_name", "eval_task", "eval_task_name", "num_samples", "acc", "auc", "ap", "f1", "ece"],
             detail_rows,
         )
 

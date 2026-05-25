@@ -64,7 +64,7 @@ method:
   increment: 2
   embd_dim: 768
   EPSILON: 1.0e-8
-  model_name: ViT-B-16
+  model_name: ViT-B/16
   pretrained: openai
   K: 7
   topk_classes: 5

@@ -222,10 +222,12 @@ class ColorJitter:
         brightness: float | Sequence[float] = 0.0,
         contrast: float | Sequence[float] = 0.0,
         saturation: float | Sequence[float] = 0.0,
+        hue: float | Sequence[float] = 0.0,
     ) -> None:
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
+        self.hue = hue
 
     def _factor(self, value: float | Sequence[float]) -> float | None:
         if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
@@ -243,16 +245,29 @@ class ColorJitter:
         brightness = self._factor(self.brightness)
         contrast = self._factor(self.contrast)
         saturation = self._factor(self.saturation)
+        hue = self._hue_factor(self.hue)
         if brightness is not None:
             ops.append(lambda x: ImageEnhance.Brightness(x).enhance(brightness))
         if contrast is not None:
             ops.append(lambda x: ImageEnhance.Contrast(x).enhance(contrast))
         if saturation is not None:
             ops.append(lambda x: ImageEnhance.Color(x).enhance(saturation))
+        if hue is not None:
+            ops.append(lambda x: _adjust_hue(x, hue))
         random.shuffle(ops)
         for op in ops:
             img = op(img)
         return img
+
+    def _hue_factor(self, value: float | Sequence[float]) -> float | None:
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            vals = list(value)
+            if len(vals) == 2:
+                return random.uniform(float(vals[0]), float(vals[1]))
+        delta = float(value)
+        if delta <= 0:
+            return None
+        return random.uniform(-delta, delta)
 
 
 class RandomInterpolationResize:
@@ -346,6 +361,14 @@ def _jpeg_roundtrip(img: Image.Image, quality: int, method: str = "JPEG") -> Ima
     out = Image.open(buffer).convert("RGB").copy()
     buffer.close()
     return out
+
+
+def _adjust_hue(img: Image.Image, hue_factor: float) -> Image.Image:
+    hsv = _as_rgb(img).convert("HSV")
+    arr = np.asarray(hsv, dtype=np.uint8).copy()
+    shift = int(round(float(hue_factor) * 255.0))
+    arr[..., 0] = (arr[..., 0].astype(np.int16) + shift) % 256
+    return Image.fromarray(arr, mode="HSV").convert("RGB")
 
 
 _TARGETS: dict[str, type] = {

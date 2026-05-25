@@ -55,11 +55,68 @@ Official reference: `DeepFakeIL/DFIL@f1188db3e3472084faa00255b1850b27d6e76468`; 
 
 Use `method.name=dfil`. Pretrain on the first domain, then assign subsequent datasets to later task IDs. Set replay quota so it matches the official central/hard sample budget: low distance-to-class-mean center samples plus high-entropy hard samples per class. Keep supervised-contrastive, KD, feature-distillation, optimizer, and StepLR weights from the official config.
 
+## RanPAC
+
+Official reference: `McDonnell-Research-Lab/RanPAC`; key files are `RanPAC.py`, `inc_net.py`, `trainer.py`, and `args/*_publish.csv`.
+
+Use `method.name=ranpac` with `configs/ranpac.yaml`. CAIDBench follows the official Phase-2 path: frozen pre-trained feature extractor, optional Gaussian random projection `M`, ReLU random features, cumulative `G = H^T H` and `Q = H^T Y`, and closed-form ridge weights. The default config uses the official CDDB-Hard row values `M=5000`, `batch_size=128`, `tuned_epoch=0`, no input normalization, train `RandomResizedCrop(224, scale=(0.05, 1.0))`, and the official ridge grid `1e-8...1e8`. For CDDB-Hard, keep the protocol order `gaugan -> biggan -> wild -> whichfaceisreal -> san`; CAIDBench keeps labels binary and uses modulo-safe training targets rather than materializing domain-duplicated class IDs.
+
+## LayUP
+
+Official reference: `ky-ah/LayUP`; key files are `src/layup.py`, `src/modules/intra_layer.py`, `src/modules/ridge.py`, and `src/data/datasets/instances.py`.
+
+Use `method.name=layup` with `configs/layup.yaml`. CAIDBench registers hooks on the last `k=6` ViT blocks when the detector backbone is a timm ViT, concatenates CLS activations, accumulates LayUP's ridge statistics, and solves the shared closed-form classifier. The config records the official CDDB-Hard defaults: `batch_size=48`, `finetune_epochs=20`, `lr=0.003`, `weight_decay=0.0005`, `early_stopping=5`, train `RandomResizedCrop(224, scale=(0.7, 1.0))`, horizontal flip, ColorJitter `0.1`, and test `Resize(224)+CenterCrop(224)`. If no hook-compatible ViT is configured, the method falls back to the detector's final feature vector so smoke checks still exercise the ridge path.
+
+## PINA / PINA-D
+
+Official reference: `qwangcv/PINA`; key files are `methods/pina.py`, `models/pina_vit.py`, `models/pina_clip.py`, `utils/pss.py`, and `configs/cddb_pina_{vit,clip}.yaml`.
+
+Use `method.name=pina` or `method.name=pina_d` with `configs/pina.yaml`. The CAIDBench adaptation preserves the official UC/DSA/PSS contract inside the framework: a frozen feature extractor, one domain adapter per task, a unified classifier trained on the base task then frozen, K-Means task keys, and routed inference. `pina` maps to shallow feature adapters, while `pina_d` maps to the deeper adapter path. The config records the official CDDB-Hard `init_epoch=50`, later `epochs=50`, `lr=0.001`, `weight_decay=0.0002`, `batch_size=128`, `prompt_length=10`, and CDDB image transform. Token-level ViT prompt insertion is not duplicated in this compact CAIDBench module; use the official repo for exact token placement ablations.
+
+## CP-Prompt
+
+Official reference: `dannis97500/CP_Prompt`; key files are `models/clip_prefix_one_prompt_tuning/model.py`, `net.py`, `prompt.py`, `prompt_learner.py`, and `configs/prefix_one_prompt/cddb.json`.
+
+Use `method.name=cp_prompt` with `configs/cp_prompt.yaml`. CAIDBench implements CP-Prompt as a feature-space common prompt plus per-domain personalized prompt, routed by task centers, with frozen CLIP/ViT features. The config records the official CDDB-Hard values from `configs/prefix_one_prompt/cddb.json`: `knn_k=5`, `share_prompt_length=6`, `prefix_prompt_length=10`, `prefix_prompt_layers=[3,5,6,7,8]`, `epochs=50`, `lr/lrate=0.01`, `batch_size=128`, and first-task/later-task weight decay. This keeps the official composition, per-domain prompt isolation, and center-based prompt selection behavior. The official Prefix-One K/V attention injection is structurally invasive to CLIP transformer internals and remains the reference path for exact paper-number reproduction.
+
+## DUCT
+
+Official reference: `Estrella-fugaz/CVPR25-Duct`; key files are `methods/duct.py`, `models/vit_inc.py`, `models/linears.py`, `utils/toolkit.py`, and `configs/Template_CDDB_duct.json`.
+
+Use `method.name=duct` with `configs/duct.yaml`. CAIDBench follows DUCT's two consolidation stages in the existing detector abstraction: train on the current domain, merge backbone task vectors into the initial PTM state with `merge_scalar`, then retrain the head on the merged representation. The config records the official CDDB-Hard `epochs=15`, `lrate=0.1`, `weight_decay=0.0005`, `merge_scalar=0.5`, `head_merge_ratio=0.5`, `lr_re=0.001`, `epc_re=5`, and CDDB image transform. Because CAIDBench uses a shared binary label space, classifier OT transport over domain-duplicated heads is approximated by head interpolation via `head_merge_ratio`.
+
+## SOYO
+
+Official reference: `QWangCV/SOYO`; key files are `methods/soyo.py`, `models/soyo_vit.py`, `models/soyo_clip.py`, `utils/soyo_utils.py`, and `configs/cddb_soyo_{vit,clip}.yaml`.
+
+Use `method.name=soyo` with `configs/soyo.yaml`. CAIDBench implements per-domain parameter isolation through adapter/classifier pools, compresses each domain's frozen features with a `GaussianMixture`, trains a linear SOYO selector from current real features plus old GMM-resampled features, and routes inference to the selected domain parameters. Defaults match the official CDDB DIC settings: `K=2`, `soyo_epoch=30`, `soyo_lr=0.1`, `lr=0.001`, `weight_decay=0.0002`, `batch_size=128`, `prompt_length=10`, and five CDDB-Hard sessions.
+
+## LoRanPAC
+
+Official reference: `liangzu/loranpac`; key files are `models/tsvd.py`, `utils/inc_net.py`, `models/ranpac.py`, `trainer.py`, and `exps/tsvd/cddb.json`.
+
+Use `method.name=loranpac` with `configs/loranpac.yaml`. CAIDBench follows the official low-rank random-feature solver: random features `H = relu(F @ RE)`, cumulative `cov_HY`, an incremental truncated SVD summary of `H^T`, and on-the-fly ridge weights `U @ ((U.T @ cov_HY) / (Sigma^2 + ridge))`. The default config records the official CDDB values `tuned_epoch=20`, `batch_size=48`, `init_lr=0.01`, `weight_decay=0.0005`, no input normalization, train `RandomResizedCrop(224, scale=(0.05, 1.0))`, `E=100000`, `rank=20000`, `truncate_percent=25`, `tsvd_batch_size=1000`, and `ridge=0`; reduce these for CPU smoke runs.
+
+## DCE
+
+Official reference: `Lain810/DCE`; key files are `methods/dce.py`, `models/DceNet.py`, `methods/base.py`, `utils/data.py`, and `configs/cddb.json`.
+
+Use `method.name=dce` with `configs/dce.yaml`. CAIDBench implements the DCE expert group as three per-domain expert heads: naive CE, balanced softmax, and reverse/few-shot CE. The config records the official imbalanced-CDDB defaults: `init_epoch=20`, later `epochs=20`, `lr/lrate=0.01`, `init_weight_decay=0.0005`, later `weight_decay=0.0002`, `batch_size=128`, `prompt_length=10`, and seven sessions. After each task it stores feature mean/covariance statistics, samples balanced synthetic features, trains a dynamic selector, and fuses all historical expert logits at inference. The official code's CDDB-Hard imbalance table differs from the paper appendix; reproduce official-code numbers by following `utils/data.py::make_imb()` and recording that choice in experiment metadata.
+
 ## Prompt2Guard
 
 Official reference: `laitifranz/Prompt2Guard@a89890203294d4f18051a3052b3a57f2e8d28d80`; key files are `src/methods/prompt2guard.py`, `src/models/slinet.py`, `src/models/clip/prompt_learner.py`, and `src/eval.py`.
 
 Use `method.name=prompt2guard` with raw 224x224 images and `pip install -e .[clip]`. The implementation follows the official SliNet path: frozen CLIP ViT-B/16, per-task text and image prompt learners, top-k object-conditioned text prompts, K-Means prototype keys after each task, and `mix_top_mean` inference aggregation. AID Arrow metadata must provide `object_labels` or `topk_object_labels` for every sample when `topk_classes > 0`.
+
+The default `configs/prompt2guard.yaml` reads the official object-label sidecar from `data/sidecars/prompt2guard/classes.pkl`. Download it before running Prompt2Guard:
+
+```bash
+mkdir -p data/sidecars/prompt2guard
+curl -L \
+  -o data/sidecars/prompt2guard/classes.pkl \
+  https://www.modelscope.cn/models/yabinnng/CAID/resolve/master/classes.pkl
+```
 
 ## S-Prompts
 

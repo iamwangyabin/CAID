@@ -10,6 +10,17 @@ from .hsic_bottleneck import HSICBottleneckMethod
 from .saido import SAIDOMethod
 from .prompt2guard import Prompt2GuardMethod
 from .sprompts import SPromptsMethod
+from .official_dil import (
+    CPPromptMethod,
+    DCEMethod,
+    DUCTMethod,
+    LayUPMethod,
+    LoRanPACMethod,
+    PINADMethod,
+    PINAMethod,
+    RanPACMethod,
+    SOYOMethod,
+)
 from .hdp import HDPMethod
 from .sur_lid import SURLIDMethod
 
@@ -25,6 +36,15 @@ __all__ = [
     "SAIDOMethod",
     "Prompt2GuardMethod",
     "SPromptsMethod",
+    "RanPACMethod",
+    "LayUPMethod",
+    "PINAMethod",
+    "PINADMethod",
+    "CPPromptMethod",
+    "DUCTMethod",
+    "SOYOMethod",
+    "LoRanPACMethod",
+    "DCEMethod",
     "HDPMethod",
     "SURLIDMethod",
 ]

@@ -1,0 +1,43 @@
+_base_: _base.yaml
+seed: 1993
+output_dir: outputs/dce_cddb_imbalanced_hard
+train:
+  epochs: 20
+  batch_size: 128
+  num_workers: 16
+  optimizer:
+    type: sgd
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0005
+method:
+  name: dce
+  num_classes: 2
+  detector_cfg:
+    num_classes: 2
+    backbone:
+      type: timm
+      name: vit_base_patch16_224
+      pretrained: true
+  dataset: cddb
+  init_cls: 2
+  increment: 2
+  total_sessions: 7
+  task_name: [gaugan, biggan, wild, whichfaceisreal, san]
+  prompt_length: 10
+  init_epoch: 20
+  init_lr: 0.01
+  init_milestones: [20, 30, 40]
+  init_lr_decay: 0.1
+  init_weight_decay: 0.0005
+  epochs: 20
+  lrate: 0.01
+  milestones: [20, 30]
+  lrate_decay: 0.1
+  weight_decay: 0.0002
+  bal_epoch: 10
+  selector_epoch: 10
+  selector_lr: 0.01
+  num_sampled_pcls: 256
+  margin_sample_num: 10
+  use_sm: false

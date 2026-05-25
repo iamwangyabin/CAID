@@ -1,0 +1,32 @@
+_base_: _base.yaml
+seed: 1993
+output_dir: outputs/duct_cddb_hard
+train:
+  epochs: 15
+  batch_size: 128
+  num_workers: 16
+  optimizer:
+    type: sgd
+    lr: 0.1
+    momentum: 0.9
+    weight_decay: 0.0005
+method:
+  name: duct
+  num_classes: 2
+  detector_cfg:
+    num_classes: 2
+    backbone:
+      type: timm
+      name: vit_base_patch16_224
+      pretrained: true
+  merge_scalar: 0.5
+  head_merge_ratio: 0.5
+  epc_re: 5
+  retrain_epochs: 5
+  lr_re: 0.001
+  bcb_lr_scale: 0.01
+  ot_reg: 0.1
+  lrate: 0.1
+  milestones: [60, 100, 140]
+  lrate_decay: 0.1
+  weight_decay: 0.0005

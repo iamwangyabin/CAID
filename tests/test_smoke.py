@@ -104,7 +104,26 @@ def base_cfg(tmp_path: Path, method: str) -> dict:
 
 
 def test_registry_contains_methods():
-    assert {"e3", "dfil", "hsic_bottleneck", "saido", "prompt2guard", "sprompts", "s-prompts", "hdp", "sur_lid"}.issubset(set(list_methods()))
+    assert {
+        "e3",
+        "dfil",
+        "hsic_bottleneck",
+        "saido",
+        "prompt2guard",
+        "sprompts",
+        "s-prompts",
+        "ranpac",
+        "layup",
+        "pina",
+        "pina-d",
+        "cp-prompt",
+        "duct",
+        "soyo",
+        "loranpac",
+        "dce",
+        "hdp",
+        "sur_lid",
+    }.issubset(set(list_methods()))
 
 
 def test_finetune_smoke(tmp_path):

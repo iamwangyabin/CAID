@@ -8,6 +8,7 @@ RUN_ID="${RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 LOG_DIR="${LOG_DIR:-outputs/official_dil_cddb_runs/$RUN_ID/logs}"
 SUMMARY_FILE="${SUMMARY_FILE:-outputs/official_dil_cddb_runs/$RUN_ID/summary.tsv}"
 OVERRIDES="${OVERRIDES:-logging.backend=none}"
+NUM_WORKERS="${NUM_WORKERS-4}"
 CONTINUE_ON_ERROR="${CONTINUE_ON_ERROR:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 INCLUDE_DONE="${INCLUDE_DONE:-0}"
@@ -46,6 +47,7 @@ echo "[run] root=$ROOT_DIR"
 echo "[run] logs=$LOG_DIR"
 echo "[run] summary=$SUMMARY_FILE"
 echo "[run] overrides=${OVERRIDES:-<none>}"
+echo "[run] num_workers_default=${NUM_WORKERS:-config}"
 echo "[run] train_cmd=${TRAIN_PARTS[*]}"
 
 run_one() {
@@ -59,6 +61,7 @@ run_one() {
   local elapsed
   local status
   local cmd
+  local -a override_parts
 
   if [[ ! -f "$config" ]]; then
     echo "[error] missing config: $config" >&2
@@ -71,8 +74,14 @@ run_one() {
   start_sec="$(date +%s)"
 
   cmd=("${TRAIN_PARTS[@]}" --config "$config")
+  override_parts=()
   if [[ -n "$OVERRIDES" ]]; then
     override_parts=($OVERRIDES)
+  fi
+  if [[ -n "$NUM_WORKERS" && " ${OVERRIDES:-} " != *" train.num_workers="* ]]; then
+    override_parts+=("train.num_workers=$NUM_WORKERS")
+  fi
+  if [[ "${#override_parts[@]}" -gt 0 ]]; then
     cmd+=(--override "${override_parts[@]}")
   fi
 

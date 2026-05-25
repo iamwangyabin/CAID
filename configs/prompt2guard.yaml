@@ -1,7 +1,25 @@
-_base_: _base.yaml
 seed: 1993
+device: auto
 output_dir: outputs/prompt2guard_cddb_hard_official
+
+logging:
+  backend: swanlab
+  project: CAIDBench
+  mode: cloud
+
 scenario:
+  data:
+    backend: aid_arrow
+    image_column: image
+    remote:
+      platform: modelscope
+      repo_ids:
+        huggingface: nebula/CDDB.arrow
+        modelscope: yabinnng/CDDB.arrow
+      local_dir: data/datasets/CDDB.arrow
+      path_in_repo: .
+      max_workers: 16
+  protocol: protocols/examples/cddb_hard_arrow.yaml
   transform:
     train:
       trsf:
@@ -31,9 +49,7 @@ train:
   num_workers: 12
   optimizer:
     type: sgd
-    lr: 0.01
     momentum: 0.9
-    weight_decay: 0.0002
 method:
   name: prompt2guard
   dataset: cddb

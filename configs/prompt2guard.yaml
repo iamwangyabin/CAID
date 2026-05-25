@@ -61,7 +61,7 @@ method:
   label_smoothing: 0.1
   # Optional official Prompt2Guard sidecar. When set, object labels are loaded
   # from classes.pkl by matching batch["path"] against this mapping.
-  object_label_sidecar: /Users/wangyabin/Downloads/classes.pkl
+  object_label_sidecar: data/sidecars/prompt2guard/classes.pkl
   object_label_root: data/datasets/CDDB.arrow
   init_lr: 0.01
   lrate: 0.01

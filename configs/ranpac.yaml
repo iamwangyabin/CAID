@@ -2,7 +2,7 @@ _base_: _base.yaml
 seed: 1993
 output_dir: outputs/ranpac_cddb_hard
 scenario:
-  protocol: protocols/examples/cddb_hard_official_overall_arrow.yaml
+  protocol: protocols/examples/cddb_hard_arrow.yaml
   transform:
     train:
       trsf:

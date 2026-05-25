@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 
+from ..data.loader import build_dataloader
 from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
 
@@ -216,6 +217,7 @@ class RidgeAccumulator(nn.Module):
         y: torch.Tensor,
         candidates: Sequence[float],
         val_fraction: float = 0.2,
+        include_history: bool = True,
     ) -> float:
         if x.shape[0] < 4 or len(candidates) <= 1:
             return float(candidates[0] if candidates else self.ridge)
@@ -228,8 +230,12 @@ class RidgeAccumulator(nn.Module):
         if x_val.shape[0] == 0:
             return float(candidates[0])
 
-        g = self.gram + x_train.t().matmul(x_train)
-        c = self.cross + x_train.t().matmul(y_train)
+        if include_history:
+            g = self.gram + x_train.t().matmul(x_train)
+            c = self.cross + x_train.t().matmul(y_train)
+        else:
+            g = x_train.t().matmul(x_train)
+            c = x_train.t().matmul(y_train)
         eye = torch.eye(self.feature_dim, device=self.gram.device, dtype=self.dtype)
         best = float(candidates[0])
         best_loss = float("inf")
@@ -328,6 +334,16 @@ class RanPACMethod(FrozenFeatureMethod):
         ridge: float | None = None,
         ridge_val_fraction: float = 0.2,
         use_relu: bool = True,
+        model_name: str = "ncm",
+        tuned_epoch: int = 0,
+        body_lr: float = 0.01,
+        head_lr: float | None = None,
+        weight_decay: float = 0.0005,
+        min_lr: float = 0.0,
+        adapter_bottleneck: int = 64,
+        adapter_dropout: float = 0.0,
+        adapter_scalar: float = 0.1,
+        use_test_transform_for_ridge: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(freeze_backbone=True, **kwargs)
@@ -336,20 +352,163 @@ class RanPACMethod(FrozenFeatureMethod):
         self.ridge_candidates = list(ridge_candidates or [10.0**i for i in range(-8, 9)])
         self.fixed_ridge = None if ridge is None else float(ridge)
         self.ridge_val_fraction = float(ridge_val_fraction)
+        self.model_name = str(model_name).lower()
+        self.tuned_epoch = int(tuned_epoch)
+        self.body_lr = float(body_lr)
+        self.head_lr = None if head_lr is None else float(head_lr)
+        self.weight_decay = float(weight_decay)
+        self.min_lr = float(min_lr)
+        self.use_test_transform_for_ridge = bool(use_test_transform_for_ridge)
+        self.adapter_tuned = False
+        if self.tuned_epoch > 0 and self.model_name != "adapter":
+            raise ValueError("RanPAC first-task tuning currently supports model_name='adapter', matching the official CDDB full setting.")
+        if self.model_name == "adapter":
+            _install_layup_adapters(
+                self.detector.backbone,
+                bottleneck=int(adapter_bottleneck),
+                dropout=float(adapter_dropout),
+                scalar=float(adapter_scalar),
+            )
         feature_dim = int(self.detector.feature_dim)
         proj_dim = self.M if self.use_RP and self.M > 0 else feature_dim
         self.projector = RandomProjection(feature_dim, self.M if self.use_RP else 0, use_relu=use_relu)
         self.ridge_head = RidgeAccumulator(proj_dim, self.num_classes)
 
+    def _build_ridge_loader(self, trainer: Any, task: Any, fallback_loader: Any) -> Any:
+        if not self.use_test_transform_for_ridge:
+            return fallback_loader
+        scenario = getattr(trainer, "scenario", None)
+        if scenario is None or not hasattr(scenario, "source"):
+            return fallback_loader
+        task_index = None
+        for idx, spec in enumerate(getattr(scenario, "tasks", [])):
+            if spec is task or (getattr(spec, "task_id", None) == getattr(task, "task_id", None) and getattr(spec, "name", None) == getattr(task, "name", None)):
+                task_index = idx
+                break
+        if task_index is None:
+            return fallback_loader
+        split_indices = getattr(scenario, "_split_indices", {})
+        indices = split_indices.get((task_index, "train"))
+        if indices is None:
+            return fallback_loader
+        transform = scenario._transform_for_split("test")
+        dataset = scenario.source.make_dataset(
+            indices,
+            transform_cfg=transform,
+            task_id=getattr(task, "task_id", task_index),
+            task_name=getattr(task, "name", f"task{task_index}"),
+        )
+        return build_dataloader(
+            dataset,
+            batch_size=int(getattr(trainer, "batch_size", 32)),
+            shuffle=True,
+            num_workers=int(getattr(trainer, "num_workers", 0)),
+            drop_last=False,
+        )
+
+    def _train_first_task_adapter(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None) -> None:
+        if self.tuned_epoch <= 0 or self.adapter_tuned or _task_id(task) != 0:
+            return
+        self.detector.train()
+        self.detector.backbone.train()
+        trainable = [p for p in self.detector.parameters() if p.requires_grad]
+        if not trainable:
+            raise RuntimeError("RanPAC adapter tuning has no trainable adapter/head parameters.")
+        head_lr = self.body_lr if self.head_lr is None else self.head_lr
+        backbone_params = [p for p in self.detector.backbone.parameters() if p.requires_grad]
+        head_params = [p for p in self.detector.head.parameters() if p.requires_grad]
+        param_groups = []
+        if backbone_params:
+            param_groups.append({"params": backbone_params, "lr": self.body_lr})
+        if head_params:
+            param_groups.append({"params": head_params, "lr": head_lr})
+        optimizer = torch.optim.SGD(param_groups, momentum=0.9, weight_decay=self.weight_decay)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=max(self.tuned_epoch, 1),
+            eta_min=self.min_lr,
+        )
+        eval_loader = val_loader if val_loader is not None else train_loader
+        for epoch in range(max(self.tuned_epoch, 1)):
+            self.detector.train()
+            self.detector.backbone.train()
+            total_loss = 0.0
+            correct = 0
+            total = 0
+            batches = 0
+            for batch in train_loader:
+                batch = batch_to_device(batch, self.device)
+                logits = self.detector(batch["x"])["logits"]
+                y = _local_targets(batch["y"], self.num_classes).to(logits.device)
+                loss = F.cross_entropy(logits, y)
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                if trainer.grad_clip:
+                    torch.nn.utils.clip_grad_norm_(trainable, trainer.grad_clip)
+                optimizer.step()
+                trainer.advance_step()
+                total_loss += float(loss.detach().cpu())
+                correct += int((logits.detach().argmax(dim=1) == y).sum().item())
+                total += int(y.numel())
+                batches += 1
+            scheduler.step()
+            tune_acc = self._adapter_accuracy(eval_loader)
+            train_acc = float(correct / max(total, 1))
+            avg_loss = total_loss / max(batches, 1)
+            trainer.logger.info(
+                "task=%s ranpac_tune epoch=%d/%d loss=%.4f train_acc=%.4f eval_acc=%.4f",
+                task.name,
+                epoch + 1,
+                self.tuned_epoch,
+                avg_loss,
+                train_acc,
+                tune_acc,
+            )
+            trainer.log_metrics(
+                {
+                    "train/ranpac_tune_loss": avg_loss,
+                    "train/ranpac_tune_acc": train_acc,
+                    "train/ranpac_tune_eval_acc": tune_acc,
+                    "train/task_index": float(_task_id(task)),
+                    "train/epoch": epoch + 1,
+                }
+            )
+        freeze_module(self.detector.backbone)
+        freeze_module(self.detector.head)
+        self.adapter_tuned = True
+
+    @torch.no_grad()
+    def _adapter_accuracy(self, loader: Any) -> float:
+        was_training = self.detector.training
+        self.detector.eval()
+        correct = 0
+        total = 0
+        for batch in loader:
+            batch = batch_to_device(batch, self.device)
+            logits = self.detector(batch["x"])["logits"]
+            y = _local_targets(batch["y"], self.num_classes).to(logits.device)
+            correct += int((logits.argmax(dim=1) == y).sum().item())
+            total += int(y.numel())
+        if was_training:
+            self.detector.train()
+        return float(correct / max(total, 1))
+
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
-        del val_loader
-        features, labels = self.collect_features(train_loader)
+        self._train_first_task_adapter(trainer, task, train_loader, val_loader)
+        ridge_loader = self._build_ridge_loader(trainer, task, train_loader)
+        features, labels = self.collect_features(ridge_loader)
         features = features.to(self.device)
         labels = labels.to(self.device)
         h = self.projector(features)
         ridge = self.fixed_ridge
         if ridge is None:
-            ridge = self.ridge_head.select_ridge(h, labels, self.ridge_candidates, self.ridge_val_fraction)
+            ridge = self.ridge_head.select_ridge(
+                h,
+                labels,
+                self.ridge_candidates,
+                self.ridge_val_fraction,
+                include_history=False,
+            )
         self.ridge_head.update(h, labels)
         self.ridge_head.solve(ridge)
         trainer.logger.info("task=%s ranpac_ridge=%.3g samples=%d dim=%d", task.name, ridge, labels.numel(), h.shape[1])

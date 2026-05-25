@@ -322,6 +322,31 @@ class RandomProjection(nn.Module):
         return F.relu(h) if self.use_relu else h
 
 
+class RanPACCosineLinear(nn.Module):
+    """Official RanPAC CosineLinear head used during first-task PETL tuning."""
+
+    def __init__(self, in_features: int, out_features: int, sigma: bool = True) -> None:
+        super().__init__()
+        self.in_features = int(in_features)
+        self.out_features = int(out_features)
+        self.weight = nn.Parameter(torch.empty(self.out_features, self.in_features))
+        if sigma:
+            self.sigma = nn.Parameter(torch.empty(1))
+        else:
+            self.register_parameter("sigma", None)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        bound = 1.0 / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-bound, bound)
+        if self.sigma is not None:
+            self.sigma.data.fill_(1.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = F.linear(F.normalize(x, p=2, dim=1), F.normalize(self.weight, p=2, dim=1))
+        return self.sigma * out if self.sigma is not None else out
+
+
 @register_method("ranpac")
 class RanPACMethod(FrozenFeatureMethod):
     """RanPAC random projection plus ridge classifier following the official code path."""
@@ -341,9 +366,10 @@ class RanPACMethod(FrozenFeatureMethod):
         weight_decay: float = 0.0005,
         min_lr: float = 0.0,
         adapter_bottleneck: int = 64,
-        adapter_dropout: float = 0.0,
+        adapter_dropout: float = 0.1,
         adapter_scalar: float = 0.1,
         use_test_transform_for_ridge: bool = True,
+        use_official_cosine_head: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(freeze_backbone=True, **kwargs)
@@ -359,6 +385,7 @@ class RanPACMethod(FrozenFeatureMethod):
         self.weight_decay = float(weight_decay)
         self.min_lr = float(min_lr)
         self.use_test_transform_for_ridge = bool(use_test_transform_for_ridge)
+        self.use_official_cosine_head = bool(use_official_cosine_head)
         self.adapter_tuned = False
         if self.tuned_epoch > 0 and self.model_name != "adapter":
             raise ValueError("RanPAC first-task tuning currently supports model_name='adapter', matching the official CDDB full setting.")
@@ -369,6 +396,8 @@ class RanPACMethod(FrozenFeatureMethod):
                 dropout=float(adapter_dropout),
                 scalar=float(adapter_scalar),
             )
+        if self.use_official_cosine_head and (self.model_name != "ncm" or self.tuned_epoch > 0):
+            self.detector.head = RanPACCosineLinear(int(self.detector.feature_dim), self.num_classes)
         feature_dim = int(self.detector.feature_dim)
         proj_dim = self.M if self.use_RP and self.M > 0 else feature_dim
         self.projector = RandomProjection(feature_dim, self.M if self.use_RP else 0, use_relu=use_relu)

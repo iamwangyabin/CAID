@@ -2,6 +2,7 @@ _base_: _base.yaml
 seed: 1993
 output_dir: outputs/ranpac_cddb_hard
 scenario:
+  protocol: protocols/examples/cddb_hard_official_overall_arrow.yaml
   transform:
     train:
       trsf:
@@ -31,7 +32,7 @@ method:
     num_classes: 2
     backbone:
       type: timm
-      name: vit_base_patch16_224
+      name: vit_base_patch16_224_in21k
       pretrained: true
   convnet_type: pretrained_vit_b16_224_in21k
   tuned_epoch: 0

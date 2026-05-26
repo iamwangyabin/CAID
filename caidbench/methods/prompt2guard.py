@@ -17,6 +17,17 @@ from ..registry import register_method
 from .base import ContinualMethod, build_optimizer
 
 
+def _clip_model_dtype(clip_model: nn.Module) -> torch.dtype:
+    dtype = getattr(clip_model, "dtype", None)
+    if dtype is not None:
+        return dtype
+    visual = getattr(clip_model, "visual", None)
+    conv1 = getattr(visual, "conv1", None)
+    if conv1 is not None:
+        return conv1.weight.dtype
+    return clip_model.token_embedding.weight.dtype
+
+
 class PromptLearner(nn.Module):
     """Official Prompt2Guard learnable text/image prompt pair."""
 
@@ -25,7 +36,7 @@ class PromptLearner(nn.Module):
         self.k = int(k)
         if self.k < 1:
             raise ValueError("Prompt2Guard requires K >= 1.")
-        dtype = clip_model.token_embedding.weight.dtype
+        dtype = _clip_model_dtype(clip_model)
         device = clip_model.token_embedding.weight.device
         text_dim = int(clip_model.ln_final.weight.shape[0])
         visual_dim = int(clip_model.visual.class_embedding.shape[-1])
@@ -187,7 +198,7 @@ class SliNet(nn.Module):
 
     @property
     def dtype(self) -> torch.dtype:
-        return self.clip_model.token_embedding.weight.dtype
+        return _clip_model_dtype(self.clip_model)
 
     def train(self, mode: bool = True):  # type: ignore[override]
         super().train(mode)

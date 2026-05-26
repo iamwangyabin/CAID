@@ -6,6 +6,7 @@ import torch
 
 from caidbench.methods.prompt2guard import Prompt2GuardMethod
 from caidbench.methods.prompt2guard import SliNet
+from caidbench.methods.prompt2guard import _clip_model_dtype
 
 
 class _TinyPrompt(torch.nn.Module):
@@ -37,6 +38,16 @@ class _RootRequiredClip:
 
 def test_prompt2guard_normalizes_openai_clip_model_name() -> None:
     assert SliNet._official_clip_name("ViT-B-16") == "ViT-B/16"
+
+
+def test_prompt2guard_uses_visual_dtype_over_token_embedding_dtype() -> None:
+    clip_model = SimpleNamespace(
+        dtype=torch.float16,
+        token_embedding=SimpleNamespace(weight=torch.empty(1, dtype=torch.float32)),
+        visual=SimpleNamespace(conv1=SimpleNamespace(weight=torch.empty(1, dtype=torch.float16))),
+    )
+
+    assert _clip_model_dtype(clip_model) == torch.float16
 
 
 def test_prompt2guard_downloads_openai_clip_with_cache_root() -> None:

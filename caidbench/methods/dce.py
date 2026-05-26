@@ -6,6 +6,7 @@ from typing import Any, Sequence
 import torch
 from torch import nn
 import torch.nn.functional as F
+from sklearn.covariance import OAS
 
 from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
@@ -158,13 +159,15 @@ class FrozenFeatureMethod(ContinualMethod):
 
 
 class CosineLinear(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int) -> None:
+    def __init__(self, in_dim: int, out_dim: int, sigma: bool = True) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.empty(out_dim, in_dim))
+        self.sigma = nn.Parameter(torch.ones(1)) if sigma else None
         nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.linear(F.normalize(x, dim=-1), F.normalize(self.weight, dim=-1))
+        logits = F.linear(F.normalize(x, dim=-1), F.normalize(self.weight, dim=-1))
+        return logits * self.sigma if self.sigma is not None else logits
 
 
 class DCEExpert(nn.Module):
@@ -175,6 +178,15 @@ class DCEExpert(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.net(x.float()))
+
+
+class DCESelector(nn.Module):
+    def __init__(self, in_dim: int, out_dim: int, hidden_dim: int = 384) -> None:
+        super().__init__()
+        self.net = nn.Sequential(nn.Linear(int(in_dim), int(hidden_dim)), nn.ReLU(inplace=True), nn.Linear(int(hidden_dim), int(out_dim)))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x.float())
 
 
 @register_method("dce")
@@ -190,6 +202,8 @@ class DCEMethod(FrozenFeatureMethod):
         num_sampled_pcls: int = 256,
         use_sm: bool = False,
         margin_sample_num: int = 10,
+        use_oas_covariance: bool = True,
+        feature_scaling_mode: int = 0,
         init_lr: float | None = None,
         lr: float | None = None,
         lrate: float | None = None,
@@ -213,6 +227,8 @@ class DCEMethod(FrozenFeatureMethod):
         self.num_sampled_pcls = int(num_sampled_pcls)
         self.use_sm = bool(use_sm)
         self.margin_sample_num = int(margin_sample_num)
+        self.use_oas_covariance = bool(use_oas_covariance)
+        self.feature_scaling_mode = int(feature_scaling_mode)
         self.init_lr = None if init_lr is None else float(init_lr)
         self.lr = None if lr is None else float(lr)
         self.lrate = None if lrate is None else float(lrate)
@@ -229,7 +245,7 @@ class DCEMethod(FrozenFeatureMethod):
         self.naive = nn.ModuleDict()
         self.balanced = nn.ModuleDict()
         self.reverse = nn.ModuleDict()
-        self.selector = nn.Linear(int(self.detector.feature_dim), 3 * self.total_sessions)
+        self.selector = DCESelector(int(self.detector.feature_dim), 3 * self.total_sessions)
         self.stats: dict[tuple[str, int], tuple[torch.Tensor, torch.Tensor, int]] = {}
         self.current_key = "task0"
 
@@ -275,15 +291,7 @@ class DCEMethod(FrozenFeatureMethod):
         task_id = _task_id(task)
         epochs = _official_task_epochs(trainer, task_id, self.init_epoch, self.epochs)
         optimizer = self.configure_optimizer(trainer.optimizer_cfg)
-        scheduler = _official_scheduler(
-            optimizer,
-            task_id,
-            init_milestones=self.init_milestones,
-            milestones=self.milestones,
-            init_lr_decay=self.init_lr_decay,
-            lr_decay=self.lr_decay,
-            lrate_decay=self.lrate_decay,
-        )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(epochs, 1))
         _run_minibatch_loop(self, trainer, task, train_loader, optimizer, epochs, scheduler)
         return True
 
@@ -320,7 +328,10 @@ class DCEMethod(FrozenFeatureMethod):
             if z.numel() == 0:
                 continue
             mean = z.mean(dim=0)
-            if z.shape[0] >= max(self.margin_sample_num, 2):
+            if self.use_oas_covariance and z.shape[0] >= 2:
+                cov_np = OAS().fit(z.numpy()).covariance_
+                cov = torch.as_tensor(cov_np, dtype=torch.float32)
+            elif z.shape[0] >= max(self.margin_sample_num, 2):
                 centered = z - mean
                 cov = centered.t().matmul(centered) / max(z.shape[0] - 1, 1)
             else:
@@ -331,12 +342,25 @@ class DCEMethod(FrozenFeatureMethod):
     def _sample_stats(self) -> tuple[torch.Tensor, torch.Tensor] | None:
         xs = []
         ys = []
-        for (_key, cls), (mean, cov, _count) in self.stats.items():
+        cur_task = int(self.current_task_id or 0)
+        for (key, cls), (mean, cov, _count) in self.stats.items():
             try:
                 dist = torch.distributions.MultivariateNormal(mean, covariance_matrix=cov)
                 sample = dist.sample((self.num_sampled_pcls,))
             except Exception:
                 sample = mean.unsqueeze(0).repeat(self.num_sampled_pcls, 1)
+            task_id = int(key.replace("task", "")) if key.startswith("task") and key[4:].isdigit() else 0
+            if self.feature_scaling_mode:
+                rand_scaling = 0.02 * (torch.rand(sample.shape[0]) - 0.5)
+                if self.feature_scaling_mode == 1:
+                    factor = 1.0 + rand_scaling * max(cur_task - task_id, 0)
+                elif self.feature_scaling_mode == 2:
+                    factor = 1.0 + rand_scaling * max(cur_task, 0) / 2.0
+                elif self.feature_scaling_mode == 4:
+                    factor = 1.0 + rand_scaling * max(cur_task, 0)
+                else:
+                    factor = 1.0 + rand_scaling
+                sample = sample / factor.clamp_min(1e-6).unsqueeze(1)
             xs.append(sample)
             ys.append(torch.full((sample.shape[0],), int(cls), dtype=torch.long))
         if not xs:
@@ -353,9 +377,10 @@ class DCEMethod(FrozenFeatureMethod):
             return
         for p in self.selector.parameters():
             p.requires_grad_(True)
-        optimizer = torch.optim.SGD(self.selector.parameters(), lr=self.selector_lr, momentum=0.9, weight_decay=2e-4)
+        optimizer = torch.optim.SGD(self.selector.parameters(), lr=self.selector_lr, momentum=0.9, weight_decay=self.weight_decay or 2e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(self.bal_epoch, self.selector_epoch, 1))
         self.selector.train()
-        for _epoch in range(max(self.selector_epoch, 1)):
+        for _epoch in range(max(self.bal_epoch, self.selector_epoch, 1)):
             expert_logits = self._all_expert_logits(x, keys).detach()
             weights = self.selector(x)[:, : 3 * len(keys)]
             weights = F.softmax(weights, dim=1) if self.use_sm else weights
@@ -364,6 +389,7 @@ class DCEMethod(FrozenFeatureMethod):
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
+            scheduler.step()
         for p in self.selector.parameters():
             p.requires_grad_(False)
 

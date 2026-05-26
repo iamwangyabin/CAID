@@ -7,8 +7,13 @@ import torch.nn.functional as F
 from torch import nn
 
 from caidbench.methods.ca_adapter_cail import ContentAgnosticAdapterCAIL
+from caidbench.methods.cp_prompt import CPPromptMethod
+from caidbench.methods.dce import CosineLinear, DCEMethod, DCESelector
+from caidbench.methods.duct import _sinkhorn_uniform
 from caidbench.methods.hsic_bottleneck import HSICBottleneckMethod
 from caidbench.methods.layup import LayUPMethod, RidgeAccumulator
+from caidbench.methods.loranpac import OnlineTruncatedSVDSolver
+from caidbench.methods.pina import PINAMethod
 from caidbench.methods.sur_lid import SURLIDMethod, _kd_loss
 
 
@@ -115,3 +120,54 @@ def test_layup_ridge_loader_uses_test_transform_without_shuffle():
     ]
     assert loader.batch_size == 7
     assert loader.sampler.__class__.__name__ == "SequentialSampler"
+
+
+def test_loranpac_rank_schedule_uses_total_samples():
+    solver = OnlineTruncatedSVDSolver(feature_dim=20, num_classes=2, rank=100, truncate_percent=25)
+    solver.update(torch.randn(10, 20), torch.arange(10) % 2)
+    assert solver.s.numel() == 8
+    solver.update(torch.randn(10, 20), torch.arange(10) % 2)
+    assert solver.s.numel() == 15
+
+
+def test_pina_routes_with_official_l1_distance():
+    method = PINAMethod(detector_cfg=_detector_cfg(out_dim=2), num_centers=1)
+    method.adapters["task0"] = nn.Identity()
+    method.adapters["task1"] = nn.Identity()
+    method.register_buffer(method._center_name("task0"), torch.tensor([[0.0, 0.0]]))
+    method.register_buffer(method._center_name("task1"), torch.tensor([[0.9, 1.1]]))
+
+    selection = method._route(torch.tensor([[0.0, 1.0]]))
+
+    assert selection.tolist() == [0]
+
+
+def test_cp_prompt_snapshots_fixed_common_prompt_after_task():
+    method = CPPromptMethod(detector_cfg=_detector_cfg(out_dim=4), is_fix_share_prompt=True)
+    task = SimpleNamespace(task_id=0, name="task0")
+    method.before_task(task)
+    with torch.no_grad():
+        method.common_prompt.fill_(1.0)
+    method.after_task(task, train_loader=None)
+    with torch.no_grad():
+        method.common_prompt.fill_(2.0)
+
+    snapshot = method._common_prompt_for("task0", torch.zeros(1, 4))
+
+    assert torch.allclose(snapshot, torch.ones(4))
+
+
+def test_dce_uses_sigma_cosine_head_and_mlp_selector():
+    head = CosineLinear(4, 2)
+    selector_method = DCEMethod(detector_cfg=_detector_cfg(out_dim=4), total_sessions=2)
+
+    assert head.sigma is not None
+    assert isinstance(selector_method.selector, DCESelector)
+
+
+def test_duct_sinkhorn_transport_is_doubly_stochastic():
+    cost = torch.tensor([[0.0, 2.0], [2.0, 0.0]])
+    transport = _sinkhorn_uniform(cost, reg=0.1)
+
+    assert torch.allclose(transport.sum(dim=0), torch.full((2,), 0.5, dtype=torch.double), atol=1e-4)
+    assert torch.allclose(transport.sum(dim=1), torch.full((2,), 0.5, dtype=torch.double), atol=1e-4)

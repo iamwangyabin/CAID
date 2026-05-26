@@ -341,6 +341,28 @@ def test_hsic_online_image_smoke(tmp_path):
     assert "average_accuracy" in summary
 
 
+@pytest.mark.parametrize(
+    ("method_name", "overrides"),
+    [
+        ("pina", {"init_epoch": 1, "epochs": 1, "num_centers": 1, "hidden_dim": 4}),
+        ("cp_prompt", {"init_epoch": 1, "epochs": 1, "num_centers": 1, "hidden_dim": 4}),
+        ("duct", {"lrate": 1e-2, "epc_re": 1, "retrain_epochs": 1, "increment": 2, "total_sessions": 2}),
+        ("soyo", {"init_epoch": 1, "epochs": 1, "soyo_epoch": 1, "gmm_components": 1, "resample_per_domain": 2, "selector_batch_size": 2}),
+        ("loranpac", {"E": 8, "rank": 4, "tsvd_batch_size": 2}),
+        ("dce", {"init_epoch": 1, "epochs": 1, "bal_epoch": 1, "selector_epoch": 1, "num_sampled_pcls": 2}),
+    ],
+)
+def test_compact_official_dil_methods_smoke(tmp_path, method_name, overrides):
+    cfg = base_cfg(tmp_path, method_name)
+    cfg["train"]["epochs"] = 1
+    cfg["train"]["batch_size"] = 2
+    cfg["method"].update(overrides)
+
+    summary = Trainer(cfg).run()
+
+    assert "average_accuracy" in summary
+
+
 
 def make_protocol_arrow(root: Path) -> Path:
     from PIL import Image

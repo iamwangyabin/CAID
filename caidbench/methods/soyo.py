@@ -63,6 +63,7 @@ def _official_scheduler(
     optimizer: torch.optim.Optimizer,
     task_id: int,
     *,
+    epochs: int | None = None,
     init_milestones: Sequence[int] | None = None,
     milestones: Sequence[int] | None = None,
     init_lr_decay: float | None = None,
@@ -72,7 +73,7 @@ def _official_scheduler(
     points = _as_int_list(init_milestones if int(task_id) == 0 and init_milestones is not None else milestones)
     gamma = init_lr_decay if int(task_id) == 0 and init_lr_decay is not None else lrate_decay if lrate_decay is not None else lr_decay
     if not points or gamma is None:
-        return None
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(int(epochs or 1), 1))
     return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=points, gamma=float(gamma))
 
 
@@ -266,6 +267,7 @@ class DomainRoutedFeatureMethod(FrozenFeatureMethod):
         scheduler = _official_scheduler(
             optimizer,
             task_id,
+            epochs=epochs,
             init_milestones=self.init_milestones,
             milestones=self.milestones,
             init_lr_decay=self.init_lr_decay,
@@ -366,6 +368,8 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         soyo_lr: float = 0.1,
         soyo_weight_decay: float = 2e-4,
         resample_per_domain: int = 256,
+        selector_batch_size: int = 128,
+        normalize_selector_features: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -375,20 +379,27 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         self.soyo_lr = float(soyo_lr)
         self.soyo_weight_decay = float(soyo_weight_decay)
         self.resample_per_domain = int(resample_per_domain)
+        self.selector_batch_size = int(selector_batch_size)
+        self.normalize_selector_features = bool(normalize_selector_features)
         self.selector = SOYOSelector(int(self.detector.feature_dim), self.total_sessions)
         self.gmms: dict[str, GaussianMixture] = {}
+
+    def _selector_features(self, z: torch.Tensor) -> torch.Tensor:
+        z = z.float()
+        return F.normalize(z, dim=-1) if self.normalize_selector_features else z
 
     def _route(self, z: torch.Tensor) -> torch.Tensor:
         keys = list(self.adapters.keys())
         if not keys:
             return torch.zeros(z.shape[0], dtype=torch.long, device=z.device)
-        logits = self.selector(z)
+        logits = self.selector(self._selector_features(z))
         return logits[:, : len(keys)].argmax(dim=1)
 
     def after_task(self, task: Any, train_loader: Any | None = None) -> None:
         if train_loader is None:
             return
         features, _labels = self.collect_features(train_loader)
+        features = self._selector_features(features.to(self.device)).cpu()
         arr = features.float().numpy()
         if len(arr):
             n_components = min(max(1, self.gmm_components), len(arr))
@@ -407,7 +418,7 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         for key, gmm in self.gmms.items():
             if key == current_key:
                 continue
-            count = max(self.resample_per_domain, 1)
+            count = max(int(current_features.shape[0]), self.resample_per_domain, 1)
             samples, _ = gmm.sample(count)
             features.append(torch.as_tensor(samples, dtype=torch.float32, device=self.device))
             labels.append(torch.full((count,), key_to_id[key], dtype=torch.long, device=self.device))
@@ -416,9 +427,15 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         x = torch.cat(features, dim=0)
         y = torch.cat(labels, dim=0)
         optimizer = torch.optim.SGD(self.selector.parameters(), lr=self.soyo_lr, momentum=0.9, weight_decay=self.soyo_weight_decay)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(self.soyo_epoch, 1))
         self.selector.train()
+        batch_size = max(self.selector_batch_size, 1)
         for _epoch in range(max(self.soyo_epoch, 1)):
-            optimizer.zero_grad(set_to_none=True)
-            loss = F.cross_entropy(self.selector(x)[:, : len(keys)], y)
-            loss.backward()
-            optimizer.step()
+            order = torch.randperm(x.shape[0], device=x.device)
+            for start in range(0, x.shape[0], batch_size):
+                idx = order[start : start + batch_size]
+                optimizer.zero_grad(set_to_none=True)
+                loss = F.cross_entropy(self.selector(x[idx])[:, : len(keys)], y[idx])
+                loss.backward()
+                optimizer.step()
+            scheduler.step()

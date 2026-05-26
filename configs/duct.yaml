@@ -12,6 +12,7 @@ train:
     weight_decay: 0.0005
 method:
   name: duct
+  implementation: expanded_head
   num_classes: 2
   detector_cfg:
     num_classes: 2
@@ -21,11 +22,14 @@ method:
       pretrained: true
   merge_scalar: 0.5
   head_merge_ratio: 0.5
+  increment: 2
+  total_sessions: 5
   epc_re: 5
   retrain_epochs: 5
   lr_re: 0.001
   bcb_lr_scale: 0.01
   ot_reg: 0.1
+  reset_backbone_each_task: true
   lrate: 0.1
   milestones: [60, 100, 140]
   lrate_decay: 0.1

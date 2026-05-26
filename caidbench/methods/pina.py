@@ -62,6 +62,7 @@ def _official_scheduler(
     optimizer: torch.optim.Optimizer,
     task_id: int,
     *,
+    epochs: int | None = None,
     init_milestones: Sequence[int] | None = None,
     milestones: Sequence[int] | None = None,
     init_lr_decay: float | None = None,
@@ -71,7 +72,7 @@ def _official_scheduler(
     points = _as_int_list(init_milestones if int(task_id) == 0 and init_milestones is not None else milestones)
     gamma = init_lr_decay if int(task_id) == 0 and init_lr_decay is not None else lrate_decay if lrate_decay is not None else lr_decay
     if not points or gamma is None:
-        return None
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(int(epochs or 1), 1))
     return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=points, gamma=float(gamma))
 
 
@@ -265,6 +266,7 @@ class DomainRoutedFeatureMethod(FrozenFeatureMethod):
         scheduler = _official_scheduler(
             optimizer,
             task_id,
+            epochs=epochs,
             init_milestones=self.init_milestones,
             milestones=self.milestones,
             init_lr_decay=self.init_lr_decay,
@@ -290,7 +292,7 @@ class DomainRoutedFeatureMethod(FrozenFeatureMethod):
                     centers_np = KMeans(n_clusters=n_clusters, random_state=0, n_init="auto").fit(unique).cluster_centers_
                 except TypeError:
                     centers_np = KMeans(n_clusters=n_clusters, random_state=0, n_init=10).fit(unique).cluster_centers_
-            centers = F.normalize(torch.as_tensor(centers_np, dtype=torch.float32), dim=-1)
+            centers = torch.as_tensor(centers_np, dtype=torch.float32)
         name = self._center_name(key)
         if name in self._buffers:
             self._buffers[name] = centers.to(self.device)
@@ -311,7 +313,7 @@ class DomainRoutedFeatureMethod(FrozenFeatureMethod):
             centers = getattr(self, name).to(z_norm.device)
             if centers.numel() == 0:
                 continue
-            distances.append(torch.cdist(z_norm, centers).min(dim=1).values)
+            distances.append((z_norm[:, None, :] - centers[None, :, :]).abs().sum(dim=-1).min(dim=1).values)
             routed_keys.append(key)
         if not distances:
             return torch.full((z.shape[0],), len(keys) - 1, dtype=torch.long, device=z.device)

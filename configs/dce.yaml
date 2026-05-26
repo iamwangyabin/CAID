@@ -12,6 +12,8 @@ train:
     weight_decay: 0.0005
 method:
   name: dce
+  implementation: feature_space
+  net_type: dce
   num_classes: 2
   detector_cfg:
     num_classes: 2
@@ -41,3 +43,5 @@ method:
   num_sampled_pcls: 256
   margin_sample_num: 10
   use_sm: false
+  use_oas_covariance: true
+  feature_scaling_mode: 0

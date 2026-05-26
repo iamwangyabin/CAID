@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -8,7 +9,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device
+from .base import ContinualMethod, batch_to_device, freeze_module
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -100,8 +101,8 @@ class OnlineTruncatedSVDSolver(nn.Module):
         h = h.detach().float().to(self.cov_hy.device)
         y = y.long().to(self.cov_hy.device)
         self.cov_hy += h.t().matmul(_one_hot(y, self.num_classes, dtype=h.dtype))
-        self._update_svd(h)
         self.num_samples += int(h.shape[0])
+        self._update_svd(h)
 
     def _update_svd(self, h: torch.Tensor) -> None:
         columns = h.t()
@@ -109,7 +110,7 @@ class OnlineTruncatedSVDSolver(nn.Module):
             summary = self.u * self.s.reshape(1, -1)
             columns = torch.cat([summary.to(columns.device), columns], dim=1)
         max_rank = max(1, min(self.rank, columns.shape[0], columns.shape[1]))
-        keep_by_samples = int(math.ceil(columns.shape[1] * max(0.0, 1.0 - self.truncate_percent / 100.0)))
+        keep_by_samples = int(round(self.num_samples * max(0.0, 1.0 - self.truncate_percent / 100.0)))
         keep = max(1, min(max_rank, keep_by_samples))
         u, s, _vh = torch.linalg.svd(columns, full_matrices=False)
         self.u = u[:, :keep].detach()

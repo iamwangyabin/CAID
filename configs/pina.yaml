@@ -12,6 +12,8 @@ train:
     weight_decay: 0.0002
 method:
   name: pina_d
+  implementation: feature_space
+  net_type: pina_vit
   num_classes: 2
   detector_cfg:
     num_classes: 2

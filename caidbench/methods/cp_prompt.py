@@ -62,6 +62,7 @@ def _official_scheduler(
     optimizer: torch.optim.Optimizer,
     task_id: int,
     *,
+    epochs: int | None = None,
     init_milestones: Sequence[int] | None = None,
     milestones: Sequence[int] | None = None,
     init_lr_decay: float | None = None,
@@ -71,7 +72,7 @@ def _official_scheduler(
     points = _as_int_list(init_milestones if int(task_id) == 0 and init_milestones is not None else milestones)
     gamma = init_lr_decay if int(task_id) == 0 and init_lr_decay is not None else lrate_decay if lrate_decay is not None else lr_decay
     if not points or gamma is None:
-        return None
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(int(epochs or 1), 1))
     return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=points, gamma=float(gamma))
 
 
@@ -265,6 +266,7 @@ class DomainRoutedFeatureMethod(FrozenFeatureMethod):
         scheduler = _official_scheduler(
             optimizer,
             task_id,
+            epochs=epochs,
             init_milestones=self.init_milestones,
             milestones=self.milestones,
             init_lr_decay=self.init_lr_decay,
@@ -350,8 +352,21 @@ class DomainRoutedFeatureMethod(FrozenFeatureMethod):
 class CPPromptMethod(DomainRoutedFeatureMethod):
     """CP-Prompt composition-style common and personalized prompt reproduction."""
 
-    def __init__(self, prompt_dim: int | None = None, common_prompt_lr_scale: float = 1.0, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        prompt_dim: int | None = None,
+        common_prompt_lr_scale: float = 1.0,
+        implementation: str = "feature_space",
+        is_fix_share_prompt: bool = True,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
+        self.implementation = str(implementation).lower()
+        if self.implementation not in {"feature_space", "compact"}:
+            raise NotImplementedError(
+                "CP-Prompt implementation='official' requires CLIP transformer token/prefix injection; "
+                "use implementation='feature_space' for the CAIDBench compact adapter."
+            )
         dim = int(prompt_dim or self.detector.feature_dim)
         if dim != int(self.detector.feature_dim):
             raise ValueError("Feature-space CP-Prompt requires prompt_dim == detector.feature_dim.")
@@ -359,6 +374,7 @@ class CPPromptMethod(DomainRoutedFeatureMethod):
         nn.init.normal_(self.common_prompt, std=0.02)
         self.personal_prompts = nn.ParameterDict()
         self.common_prompt_lr_scale = float(common_prompt_lr_scale)
+        self.is_fix_share_prompt = bool(is_fix_share_prompt)
 
     def _ensure_task_modules(self, key: str) -> None:
         super()._ensure_task_modules(key)
@@ -373,6 +389,53 @@ class CPPromptMethod(DomainRoutedFeatureMethod):
             prompt.requires_grad_(key == self.current_key)
         self.common_prompt.requires_grad_(True)
 
+    def configure_optimizer(self, optimizer_cfg: dict[str, Any] | None = None) -> torch.optim.Optimizer:
+        cfg = _official_optimizer_cfg(
+            optimizer_cfg,
+            0 if self.current_task_id is None else int(self.current_task_id),
+            init_lr=self.init_lr,
+            lr=self.lr,
+            lrate=self.lrate,
+            init_weight_decay=self.init_weight_decay,
+            weight_decay=self.weight_decay,
+            optimizer_type=self.optimizer_type,
+        )
+        cfg.setdefault("lr", 1e-3)
+        lr = float(cfg.get("lr", 1e-3))
+        weight_decay = float(cfg.get("weight_decay", 0.0))
+        common = [self.common_prompt] if self.common_prompt.requires_grad else []
+        common_ids = {id(p) for p in common}
+        other = [p for p in self.parameters() if p.requires_grad and id(p) not in common_ids]
+        groups = []
+        if other:
+            groups.append({"params": other, "lr": lr, "weight_decay": weight_decay})
+        if common:
+            groups.append({"params": common, "lr": lr * self.common_prompt_lr_scale, "weight_decay": weight_decay})
+        if not groups:
+            raise RuntimeError("No trainable parameters for CP-Prompt optimizer")
+        name = str(cfg.get("type", "sgd")).lower()
+        if name == "adam":
+            return torch.optim.Adam(groups)
+        if name == "adamw":
+            return torch.optim.AdamW(groups)
+        return torch.optim.SGD(groups, momentum=float(cfg.get("momentum", 0.9)))
+
+    def _common_prompt_for(self, key: str, z: torch.Tensor) -> torch.Tensor:
+        name = f"common_prompt_{key}"
+        if self.is_fix_share_prompt and name in self._buffers:
+            return getattr(self, name).to(device=z.device, dtype=z.dtype)
+        return self.common_prompt.to(z.dtype)
+
     def _task_logits(self, z: torch.Tensor, key: str) -> torch.Tensor:
-        composed = z + self.common_prompt.to(z.dtype) + self.personal_prompts[key].to(z.dtype)
+        composed = z + self._common_prompt_for(key, z) + self.personal_prompts[key].to(z.dtype)
         return self.classifiers[key](self.adapters[key](composed))
+
+    def after_task(self, task: Any, train_loader: Any | None = None) -> None:
+        if self.is_fix_share_prompt:
+            name = f"common_prompt_{self.current_key}"
+            snapshot = self.common_prompt.detach().clone()
+            if name in self._buffers:
+                self._buffers[name] = snapshot
+            else:
+                self.register_buffer(name, snapshot)
+        super().after_task(task, train_loader)

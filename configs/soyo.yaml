@@ -12,6 +12,8 @@ train:
     weight_decay: 0.0002
 method:
   name: soyo
+  implementation: feature_space
+  net_type: soyo_vit
   num_classes: 2
   detector_cfg:
     num_classes: 2
@@ -33,6 +35,8 @@ method:
   soyo_lr: 0.1
   soyo_weight_decay: 0.0002
   resample_per_domain: 256
+  selector_batch_size: 128
+  normalize_selector_features: true
   init_epoch: 50
   init_lr: 0.001
   init_weight_decay: 0.0002

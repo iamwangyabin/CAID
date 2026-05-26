@@ -10,17 +10,14 @@ from .hsic_bottleneck import HSICBottleneckMethod
 from .saido import SAIDOMethod
 from .prompt2guard import Prompt2GuardMethod
 from .sprompts import SPromptsMethod
-from .official_dil import (
-    CPPromptMethod,
-    DCEMethod,
-    DUCTMethod,
-    LayUPMethod,
-    LoRanPACMethod,
-    PINADMethod,
-    PINAMethod,
-    RanPACMethod,
-    SOYOMethod,
-)
+from .ranpac import RanPACMethod
+from .layup import LayUPMethod
+from .pina import PINAMethod, PINADMethod
+from .cp_prompt import CPPromptMethod
+from .duct import DUCTMethod
+from .soyo import SOYOMethod
+from .loranpac import LoRanPACMethod
+from .dce import DCEMethod
 from .hdp import HDPMethod
 from .sur_lid import SURLIDMethod
 

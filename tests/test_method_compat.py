@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 
 from caidbench.methods.ca_adapter_cail import ContentAgnosticAdapterCAIL
 from caidbench.methods.hsic_bottleneck import HSICBottleneckMethod
-from caidbench.methods.official_dil import RidgeAccumulator
+from caidbench.methods.layup import LayUPMethod, RidgeAccumulator
 from caidbench.methods.sur_lid import SURLIDMethod, _kd_loss
 
 
@@ -73,3 +75,43 @@ def test_layup_ridge_selection_uses_stratified_accuracy_cv():
     y = torch.tensor([0, 0, 0, 0, 1, 1, 1, 1])
     selected = ridge.select_ridge_stratified_accuracy(x, y, [1e-8, 1e8], n_splits=4)
     assert selected == 1e-8
+
+
+def test_layup_ridge_loader_uses_test_transform_without_shuffle():
+    calls = []
+
+    class Source:
+        def make_dataset(self, indices, transform_cfg=None, task_id=None, task_name=None):
+            calls.append(
+                {
+                    "indices": list(indices),
+                    "transform_cfg": transform_cfg,
+                    "task_id": task_id,
+                    "task_name": task_name,
+                }
+            )
+            return [{"x": torch.zeros(3, 8, 8), "y": 0}]
+
+    task = SimpleNamespace(task_id=3, name="GauGAN")
+    scenario = SimpleNamespace(
+        source=Source(),
+        tasks=[task],
+        _split_indices={(0, "train"): [5, 2, 9]},
+        _transform_for_split=lambda split: f"{split}_transform",
+    )
+    trainer = SimpleNamespace(scenario=scenario, batch_size=7, num_workers=0)
+    method = object.__new__(LayUPMethod)
+    method.use_test_transform_for_ridge = True
+
+    loader = method._build_ridge_loader(trainer, task, fallback_loader=None)
+
+    assert calls == [
+        {
+            "indices": [5, 2, 9],
+            "transform_cfg": "test_transform",
+            "task_id": 3,
+            "task_name": "GauGAN",
+        }
+    ]
+    assert loader.batch_size == 7
+    assert loader.sampler.__class__.__name__ == "SequentialSampler"

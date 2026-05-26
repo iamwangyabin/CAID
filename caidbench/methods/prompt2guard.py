@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import math
 import pickle
 from pathlib import Path
@@ -77,7 +78,7 @@ class SliNet(nn.Module):
         if pretrained not in {None, False, "openai"} and pretrained_path is not None and pretrained_path.exists():
             model_path = str(pretrained_path)
         elif official_name in clip_impl._MODELS:
-            model_path = clip_impl._download(clip_impl._MODELS[official_name])
+            model_path = self._download_clip_model(clip_impl, official_name)
         elif local_model_path.exists():
             model_path = str(local_model_path)
         else:
@@ -148,6 +149,18 @@ class SliNet(nn.Module):
             "rn50x16": "RN50x16",
         }
         return aliases.get(str(model_name).lower(), str(model_name))
+
+    @staticmethod
+    def _download_clip_model(clip_impl: Any, model_name: str) -> str:
+        url = clip_impl._MODELS[model_name]
+        download = clip_impl._download
+        try:
+            params = inspect.signature(download).parameters
+        except (TypeError, ValueError):
+            params = {}
+        if "root" in params:
+            return str(download(url, root=str(Path.home() / ".cache" / "clip")))
+        return str(download(url))
 
     @staticmethod
     def _set_transformer_mask(transformer: nn.Module, attn_mask: torch.Tensor | None) -> None:

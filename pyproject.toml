@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 clip = [
-  "clip @ git+https://gh-proxy.com/https://github.com/openai/CLIP.git",
+  "clip @ https://gh-proxy.com/https://github.com/openai/CLIP/archive/refs/heads/main.zip",
   "open_clip_torch>=2.24",
   "transformers>=4.40",
   "ftfy>=6.1",

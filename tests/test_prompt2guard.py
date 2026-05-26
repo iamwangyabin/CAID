@@ -27,8 +27,22 @@ class _TinyPromptNetwork:
         self.frozen_indices.append(task_index)
 
 
+class _RootRequiredClip:
+    _MODELS = {"ViT-B/16": "https://example.invalid/clip.pt"}
+
+    @staticmethod
+    def _download(url: str, root: str) -> str:
+        return f"{root}/{url.rsplit('/', 1)[-1]}"
+
+
 def test_prompt2guard_normalizes_openai_clip_model_name() -> None:
     assert SliNet._official_clip_name("ViT-B-16") == "ViT-B/16"
+
+
+def test_prompt2guard_downloads_openai_clip_with_cache_root() -> None:
+    path = SliNet._download_clip_model(_RootRequiredClip, "ViT-B/16")
+
+    assert path.endswith("/.cache/clip/clip.pt")
 
 
 def test_prompt2guard_enable_prev_prompt_initializes_new_task_from_previous() -> None:

@@ -520,6 +520,7 @@ class Prompt2GuardMethod(ContinualMethod):
         prediction_mode: str = "mix_top_mean",
         n_clusters: int = 5,
         label_smoothing: float = 0.1,
+        enable_prev_prompt: bool = False,
         object_label_sidecar: str | None = None,
         object_label_root: str | None = None,
         init_lr: float = 0.01,
@@ -547,6 +548,7 @@ class Prompt2GuardMethod(ContinualMethod):
         self.prediction_mode = str(prediction_mode).lower()
         self.n_clusters = int(n_clusters)
         self.label_smoothing = float(label_smoothing)
+        self.enable_prev_prompt = bool(enable_prev_prompt)
         self.object_label_root = Path(object_label_root).expanduser().resolve() if object_label_root else None
         self.object_label_lookup = self._load_object_label_sidecar(object_label_sidecar)
         self.init_lr = float(init_lr)
@@ -624,7 +626,11 @@ class Prompt2GuardMethod(ContinualMethod):
         self.current_task_id = int(getattr(task, "task_id", task if isinstance(task, int) else len(self.task_ids)))
         if self.current_task_id not in self.task_ids:
             self.task_ids.append(self.current_task_id)
-            self.network.add_task()
+            new_task_index = self.network.add_task()
+            if self.enable_prev_prompt and new_task_index > 0:
+                self.network.prompt_learner[new_task_index].load_state_dict(
+                    self.network.prompt_learner[new_task_index - 1].state_dict()
+                )
         self.current_task_index = self.task_ids.index(self.current_task_id)
         self.network.freeze_except(self.current_task_index)
 

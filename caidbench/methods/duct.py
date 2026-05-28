@@ -100,6 +100,7 @@ class DUCTMethod(ContinualMethod):
         increment: int | None = None,
         total_sessions: int = 5,
         reset_backbone_each_task: bool = True,
+        use_official_retrain_lr: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -116,6 +117,7 @@ class DUCTMethod(ContinualMethod):
         self.increment = int(increment or self.num_classes)
         self.total_sessions = int(total_sessions)
         self.reset_backbone_each_task = bool(reset_backbone_each_task)
+        self.use_official_retrain_lr = bool(use_official_retrain_lr)
         self.expanded_head: ExpandedCosineHead | None = None
         for p in self.detector.head.parameters():
             p.requires_grad_(False)
@@ -200,6 +202,7 @@ class DUCTMethod(ContinualMethod):
         optimizer = self._make_optimizer(trainer)
         scheduler = self._make_scheduler(optimizer, trainer)
         for epoch in range(trainer.max_epochs):
+            epoch_lr = float(optimizer.param_groups[0]["lr"])
             totals: dict[str, float] = {}
             n = 0
             for batch in train_loader:
@@ -210,12 +213,31 @@ class DUCTMethod(ContinualMethod):
                     torch.nn.utils.clip_grad_norm_(self.parameters(), trainer.grad_clip)
                 optimizer.step()
                 trainer.advance_step()
-                totals["ce"] = totals.get("ce", 0.0) + float(out["ce"].detach().cpu())
+                for key, value in out.items():
+                    if key == "logits":
+                        continue
+                    if torch.is_tensor(value) and value.ndim == 0:
+                        totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
                 n += 1
             if scheduler is not None:
                 scheduler.step()
             if totals:
-                trainer.logger.info("task=%s epoch=%d/%d ce=%.4f", task.name, epoch + 1, trainer.max_epochs, totals["ce"] / max(n, 1))
+                metrics = {key: value / max(n, 1) for key, value in totals.items()}
+                trainer.logger.info(
+                    "task=%s epoch=%d/%d %s",
+                    task.name,
+                    epoch + 1,
+                    trainer.max_epochs,
+                    ", ".join(f"{key}={value:.4f}" for key, value in metrics.items()),
+                )
+                trainer.log_metrics(
+                    {
+                        **{f"train/{key}": value for key, value in metrics.items()},
+                        "train/task_index": float(_task_id(task)),
+                        "train/epoch": epoch + 1,
+                        "train/lr": epoch_lr,
+                    }
+                )
         self._merge_backbone()
         self._retrain_head(trainer, train_loader)
         self._transport_classifier()
@@ -240,7 +262,10 @@ class DUCTMethod(ContinualMethod):
             p.requires_grad_(False)
         head.weight.requires_grad_(True)
         head.sigma.requires_grad_(True)
-        optimizer = torch.optim.SGD([head.weight, head.sigma], lr=self.lr_re, momentum=0.9, weight_decay=self.weight_decay)
+        base_lr = float(self.lrate if self.lrate is not None else trainer.optimizer_cfg.get("lr", self.lr_re))
+        retrain_lr = base_lr if self.use_official_retrain_lr else self.lr_re
+        trainer.logger.info("DUCT retrain head epochs=%d lr=%.6g", self.retrain_epochs, retrain_lr)
+        optimizer = torch.optim.SGD([head.weight, head.sigma], lr=retrain_lr, momentum=0.9, weight_decay=self.weight_decay)
         self.train()
         active = self._current_slice()
         for _epoch in range(self.retrain_epochs):

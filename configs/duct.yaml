@@ -30,6 +30,7 @@ method:
   epc_re: 5
   retrain_epochs: 5
   lr_re: 0.001
+  use_official_retrain_lr: true
   bcb_lr_scale: 0.01
   ot_reg: 0.1
   reset_backbone_each_task: true

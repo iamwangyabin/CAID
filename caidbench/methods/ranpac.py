@@ -450,7 +450,7 @@ class RanPACMethod(FrozenFeatureMethod):
             train_acc = float(correct / max(total, 1))
             avg_loss = total_loss / max(batches, 1)
             trainer.logger.info(
-                "task=%s ranpac_tune epoch=%d/%d loss=%.4f train_acc=%.4f eval_acc=%.4f",
+                "task=%s epoch=%d/%d ranpac_tune_loss=%.4f ranpac_tune_acc=%.4f ranpac_tune_eval_acc=%.4f",
                 task.name,
                 epoch + 1,
                 self.tuned_epoch,
@@ -505,8 +505,15 @@ class RanPACMethod(FrozenFeatureMethod):
             )
         self.ridge_head.update(h, labels)
         self.ridge_head.solve(ridge)
-        trainer.logger.info("task=%s ranpac_ridge=%.3g samples=%d dim=%d", task.name, ridge, labels.numel(), h.shape[1])
-        trainer.log_metrics({"train/ranpac_ridge": ridge, "train/task_index": float(_task_id(task))})
+        trainer.logger.info("task=%s ranpac_ridge=%.3g ranpac_samples=%d ranpac_dim=%d", task.name, ridge, labels.numel(), h.shape[1])
+        trainer.log_metrics(
+            {
+                "train/ranpac_ridge": ridge,
+                "train/ranpac_samples": float(labels.numel()),
+                "train/ranpac_dim": float(h.shape[1]),
+                "train/task_index": float(_task_id(task)),
+            }
+        )
         return True
 
     def predict(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:

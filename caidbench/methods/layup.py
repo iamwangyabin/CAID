@@ -502,7 +502,7 @@ class LayUPMethod(FrozenFeatureMethod):
             val_acc = self._evaluate_fsa_head(head, eval_loader)
             train_acc = float(total_correct / max(total, 1))
             trainer.logger.info(
-                "task=%s fsa_epoch=%d/%d loss=%.4f train_acc=%.4f val_acc=%.4f",
+                "task=%s epoch=%d/%d layup_fsa_loss=%.4f layup_fsa_acc=%.4f layup_fsa_val_acc=%.4f",
                 task.name,
                 epoch + 1,
                 max(self.finetune_epochs, 1),
@@ -544,8 +544,15 @@ class LayUPMethod(FrozenFeatureMethod):
         ridge = self.ridge_head.select_ridge_stratified_accuracy(x, y, self.ridge_candidates, n_splits=self.ridge_splits)
         self.ridge_head.update(x, y)
         self.ridge_head.solve(ridge)
-        trainer.logger.info("task=%s layup_ridge=%.3g samples=%d dim=%d", task.name, ridge, y.numel(), x.shape[1])
-        trainer.log_metrics({"train/layup_ridge": ridge, "train/task_index": float(_task_id(task))})
+        trainer.logger.info("task=%s layup_ridge=%.3g layup_samples=%d layup_dim=%d", task.name, ridge, y.numel(), x.shape[1])
+        trainer.log_metrics(
+            {
+                "train/layup_ridge": ridge,
+                "train/layup_samples": float(y.numel()),
+                "train/layup_dim": float(x.shape[1]),
+                "train/task_index": float(_task_id(task)),
+            }
+        )
         return True
 
     def predict(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:

@@ -287,6 +287,32 @@ def test_sprompts_prompt_token_sip_smoke(tmp_path):
     assert "average_accuracy" in summary
 
 
+def test_soyo_official_vit_smoke(tmp_path):
+    if importlib.util.find_spec("timm") is None:
+        return
+    cfg = base_cfg(tmp_path, "soyo")
+    cfg["method"].pop("detector_cfg", None)
+    cfg["train"]["optimizer"] = {"type": "sgd", "lr": 1e-2, "momentum": 0.9}
+    cfg["method"].update(
+        {
+            "implementation": "official",
+            "net_type": "soyo_vit",
+            "total_sessions": 2,
+            "prompt_length": 2,
+            "hidden_dim": 4,
+            "gmm_components": 1,
+            "soyo_epoch": 1,
+            "soyo_lr": 1e-2,
+            "init_epoch": 1,
+            "epochs": 1,
+            "backbone": {"type": "timm", "name": "vit_tiny_patch16_224", "pretrained": False, "img_size": 16},
+        }
+    )
+
+    summary = Trainer(cfg).run()
+    assert "average_accuracy" in summary
+
+
 def make_image_arrow(root: Path, tasks: int = 1) -> Path:
     from PIL import Image
     rows = []

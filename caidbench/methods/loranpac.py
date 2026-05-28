@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import math
 from typing import Any
 
-import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
 
+from ..data.loader import build_dataloader
 from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, freeze_module
 
@@ -79,22 +78,37 @@ class RandomProjection(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.float()
         if self.out_dim <= 0:
-            return x
+            return F.relu(x) if self.use_relu else x
         h = x.matmul(self.matrix.to(device=x.device, dtype=x.dtype))
         return F.relu(h) if self.use_relu else h
 
 
 class OnlineTruncatedSVDSolver(nn.Module):
-    def __init__(self, feature_dim: int, num_classes: int, rank: int = 20000, ridge: float = 0.0, truncate_percent: float = 25.0) -> None:
+    """Incremental TSVD ridge solver following LoRanPAC's ``TSVDNet`` path."""
+
+    def __init__(
+        self,
+        feature_dim: int,
+        num_classes: int,
+        rank: int = 20000,
+        ridge: float = 0.0,
+        truncate_percent: float = 25.0,
+        update_threshold: int = 10000,
+    ) -> None:
         super().__init__()
         self.feature_dim = int(feature_dim)
         self.num_classes = int(num_classes)
         self.rank = int(rank)
         self.ridge = float(ridge)
         self.truncate_percent = float(truncate_percent)
+        self.update_threshold = int(update_threshold)
+        retained_dim = round(self.feature_dim * (1.0 - self.truncate_percent / 100.0))
+        self.max_rank = min(int(retained_dim), self.rank)
         self.register_buffer("u", torch.empty(self.feature_dim, 0))
         self.register_buffer("s", torch.empty(0))
         self.register_buffer("cov_hy", torch.zeros(self.feature_dim, self.num_classes))
+        self.register_buffer("svd_initialized", torch.tensor(False, dtype=torch.bool))
+        self._feature_chunks: list[torch.Tensor] = []
         self.num_samples = 0
 
     def update(self, h: torch.Tensor, y: torch.Tensor) -> None:
@@ -102,26 +116,56 @@ class OnlineTruncatedSVDSolver(nn.Module):
         y = y.long().to(self.cov_hy.device)
         self.cov_hy += h.t().matmul(_one_hot(y, self.num_classes, dtype=h.dtype))
         self.num_samples += int(h.shape[0])
-        self._update_svd(h)
+        self._feature_chunks.append(h)
+        current_batch_size = len(self._feature_chunks) * int(h.shape[0])
+        if current_batch_size > self.update_threshold:
+            self.update_svd()
 
-    def _update_svd(self, h: torch.Tensor) -> None:
-        columns = h.t()
-        if self.u.numel():
-            summary = self.u * self.s.reshape(1, -1)
-            columns = torch.cat([summary.to(columns.device), columns], dim=1)
-        max_rank = max(1, min(self.rank, columns.shape[0], columns.shape[1]))
-        keep_by_samples = int(round(self.num_samples * max(0.0, 1.0 - self.truncate_percent / 100.0)))
-        keep = max(1, min(max_rank, keep_by_samples))
-        u, s, _vh = torch.linalg.svd(columns, full_matrices=False)
-        self.u = u[:, :keep].detach()
-        self.s = s[:keep].detach()
+    def _num_preserved(self) -> int:
+        keep_by_samples = round(self.num_samples * (1.0 - self.truncate_percent / 100.0))
+        return min(int(keep_by_samples), int(self.max_rank))
+
+    def update_svd(self) -> None:
+        if not self._feature_chunks:
+            return
+        features_h = torch.cat(self._feature_chunks, dim=0)
+        self._feature_chunks = []
+        num_preserved = self._num_preserved()
+        if not bool(self.svd_initialized.item()):
+            u, s, _vh = torch.linalg.svd(features_h.t(), full_matrices=False)
+            self.u = u[:, :num_preserved].detach()
+            self.s = s[:num_preserved].detach()
+            self.svd_initialized.fill_(True)
+            return
+
+        upper_off_diag = self.u.t().matmul(features_h.t())
+        residual = features_h.t() - self.u.matmul(upper_off_diag)
+        q, r = torch.linalg.qr(residual, mode="reduced")
+        lower = torch.cat(
+            [
+                torch.zeros(r.shape[0], self.s.shape[0], device=r.device, dtype=r.dtype),
+                r,
+            ],
+            dim=1,
+        )
+        upper = torch.cat([torch.diag(self.s.to(device=r.device, dtype=r.dtype)), upper_off_diag], dim=1)
+        basis_u, s, _vh = torch.linalg.svd(torch.cat([upper, lower], dim=0), full_matrices=False)
+        basis_u = basis_u[:, :num_preserved]
+        s = s[:num_preserved]
+        updated_u = torch.cat([self.u.to(q.device), q], dim=1).matmul(basis_u)
+        updated_u, _r = torch.linalg.qr(updated_u, mode="reduced")
+        self.u = updated_u.detach()
+        self.s = s.detach()
+
+    def finalize(self) -> None:
+        self.update_svd()
 
     def weight(self) -> torch.Tensor:
         if self.u.numel() == 0:
             return torch.zeros(self.num_classes, self.feature_dim, device=self.cov_hy.device)
         ut_cov = self.u.t().matmul(self.cov_hy)
         denom = self.s.square().unsqueeze(1) + float(self.ridge)
-        return self.u.matmul(ut_cov / denom.clamp_min(1e-12)).t()
+        return self.u.matmul(ut_cov / denom).t()
 
 
 @register_method("loranpac")
@@ -139,6 +183,8 @@ class LoRanPACMethod(FrozenFeatureMethod):
         use_relu: bool = True,
         coslinear: bool = False,
         tsvd_batch_size: int = 1000,
+        tsvd_update_threshold: int = 10000,
+        use_test_transform_for_tsvd: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(freeze_backbone=True, **kwargs)
@@ -146,20 +192,78 @@ class LoRanPACMethod(FrozenFeatureMethod):
         self.use_RE = bool(use_RE)
         self.coslinear = bool(coslinear)
         self.tsvd_batch_size = int(tsvd_batch_size)
+        self.use_test_transform_for_tsvd = bool(use_test_transform_for_tsvd)
         feature_dim = int(self.detector.feature_dim)
         proj_dim = self.E if self.use_RE else feature_dim
         self.projector = RandomProjection(feature_dim, self.E if self.use_RE else 0, use_relu=use_relu)
-        self.solver = OnlineTruncatedSVDSolver(proj_dim, self.num_classes, rank=rank, ridge=ridge, truncate_percent=truncate_percent)
+        self.solver = OnlineTruncatedSVDSolver(
+            proj_dim,
+            self.num_classes,
+            rank=rank,
+            ridge=ridge,
+            truncate_percent=truncate_percent,
+            update_threshold=tsvd_update_threshold,
+        )
+
+    def _build_tsvd_loader(self, trainer: Any, task: Any, fallback_loader: Any) -> Any:
+        if not self.use_test_transform_for_tsvd:
+            return fallback_loader
+        scenario = getattr(trainer, "scenario", None)
+        if scenario is None or not hasattr(scenario, "source"):
+            return fallback_loader
+        task_index = None
+        for idx, spec in enumerate(getattr(scenario, "tasks", [])):
+            same_id = getattr(spec, "task_id", None) == getattr(task, "task_id", None)
+            same_name = getattr(spec, "name", None) == getattr(task, "name", None)
+            if spec is task or (same_id and same_name):
+                task_index = idx
+                break
+        if task_index is None:
+            return fallback_loader
+        split_indices = getattr(scenario, "_split_indices", {})
+        indices = split_indices.get((task_index, "train"))
+        if indices is None:
+            return fallback_loader
+        transform = scenario._transform_for_split("test")
+        dataset = scenario.source.make_dataset(
+            indices,
+            transform_cfg=transform,
+            task_id=getattr(task, "task_id", task_index),
+            task_name=getattr(task, "name", f"task{task_index}"),
+        )
+        return build_dataloader(
+            dataset,
+            batch_size=max(self.tsvd_batch_size, 1),
+            shuffle=True,
+            num_workers=int(getattr(trainer, "num_workers", 0)),
+            drop_last=False,
+        )
 
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
         del val_loader
-        features, labels = self.collect_features(train_loader)
-        for start in range(0, features.shape[0], max(self.tsvd_batch_size, 1)):
-            stop = start + max(self.tsvd_batch_size, 1)
-            h = self.projector(features[start:stop].to(self.device))
-            self.solver.update(h, labels[start:stop].to(self.device))
+        tsvd_loader = self._build_tsvd_loader(trainer, task, train_loader)
+        was_training = self.training
+        self.eval()
+        task_samples = 0
+        with torch.no_grad():
+            for batch in tsvd_loader:
+                batch = batch_to_device(batch, self.device)
+                z = self.extract_features(batch["x"])
+                h = self.projector(z)
+                labels = _local_targets(batch["y"], self.num_classes).to(self.device)
+                self.solver.update(h, labels)
+                task_samples += int(labels.numel())
+            self.solver.finalize()
+        if was_training:
+            self.train()
         dim = self.projector.out_dim if self.use_RE else int(self.detector.feature_dim)
-        trainer.logger.info("task=%s loranpac_rank=%d samples=%d dim=%d", task.name, self.solver.s.numel(), labels.numel(), dim)
+        trainer.logger.info(
+            "task=%s loranpac_rank=%d samples=%d dim=%d",
+            task.name,
+            self.solver.s.numel(),
+            task_samples,
+            dim,
+        )
         trainer.log_metrics({"train/loranpac_rank": float(self.solver.s.numel()), "train/task_index": float(_task_id(task))})
         return True
 

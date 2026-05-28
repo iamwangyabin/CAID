@@ -60,9 +60,17 @@ class Trainer:
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
         return build_optimizer(self.method.parameters() if params is None else params, self.optimizer_cfg)
 
-    def dataloader(self, task_index: int, split: str, shuffle: bool = False):
-        ds = self.scenario.task_dataset(split, task_index)
-        return build_dataloader(ds, batch_size=self.batch_size, shuffle=shuffle, num_workers=self.num_workers, drop_last=self.drop_last and split == "train")
+    def dataloader(
+        self,
+        task_index: int,
+        split: str,
+        shuffle: bool = False,
+        transform_split: str | None = None,
+        drop_last: bool | None = None,
+    ):
+        ds = self.scenario.task_dataset(split, task_index, transform_split=transform_split)
+        effective_drop_last = self.drop_last and split == "train" if drop_last is None else bool(drop_last)
+        return build_dataloader(ds, batch_size=self.batch_size, shuffle=shuffle, num_workers=self.num_workers, drop_last=effective_drop_last)
 
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
@@ -122,6 +130,19 @@ class Trainer:
         y = torch.cat(y_list, dim=0)
         return {**summarize_logits(logits, y), "num_samples": int(y.numel())}
 
+    @staticmethod
+    def _weighted_records(records: Iterable[Mapping[str, Any]], key: str) -> float:
+        total = 0.0
+        denom = 0.0
+        for record in records:
+            value = float(record.get(key, float("nan")))
+            weight = float(record.get("num_samples", 0) or 0)
+            if np.isnan(value) or weight <= 0:
+                continue
+            total += value * weight
+            denom += weight
+        return float(total / denom) if denom > 0 else float("nan")
+
     def run(self) -> dict[str, Any]:
         try:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
@@ -170,6 +191,10 @@ class Trainer:
                         "eval/average_auc": self.metric_matrix.average_accuracy(train_index=i, kind="auc"),
                         "eval/average_ap": self.metric_matrix.average_accuracy(train_index=i, kind="ap"),
                         "eval/average_f1": self.metric_matrix.average_accuracy(train_index=i, kind="f1"),
+                        "eval/official_weighted_accuracy": self._weighted_records(eval_rows, "acc"),
+                        "eval/official_weighted_auc": self._weighted_records(eval_rows, "auc"),
+                        "eval/official_weighted_ap": self._weighted_records(eval_rows, "ap"),
+                        "eval/official_weighted_f1": self._weighted_records(eval_rows, "f1"),
                         "eval/after_task": i,
                     }
                 )
@@ -187,15 +212,19 @@ class Trainer:
                     "summary/ap_forgetting": summary["ap_forgetting"],
                     "summary/average_f1": summary["average_f1"],
                     "summary/f1_forgetting": summary["f1_forgetting"],
+                    "summary/official_average_accuracy": summary["official_average_accuracy"],
+                    "summary/official_last_accuracy": summary["official_last_accuracy"],
                 }
             )
             self.logger.info(
-                "Finished: AA=%.4f AF=%.4f AUC_AA=%.4f AP_AA=%.4f F1_AA=%.4f",
+                "Finished: AA=%.4f AF=%.4f AUC_AA=%.4f AP_AA=%.4f F1_AA=%.4f OfficialAbar=%.4f OfficialAB=%.4f",
                 summary["average_accuracy"],
                 summary["average_forgetting"],
                 summary["average_auc"],
                 summary["average_ap"],
                 summary["average_f1"],
+                summary["official_average_accuracy"],
+                summary["official_last_accuracy"],
             )
             return summary
         finally:
@@ -216,6 +245,12 @@ class Trainer:
         tables = self.metric_matrix.to_tables()
         for kind in ("acc", "auc", "ap", "f1"):
             pd.DataFrame(tables[kind], columns=[t.name for t in self.scenario.tasks]).to_csv(self.output_dir / f"{kind}_matrix.csv", index=False)
+        official_weighted_curves = {}
+        for kind in ("acc", "auc", "ap", "f1"):
+            official_weighted_curves[kind] = [
+                self._weighted_records((record for record in self.eval_records if int(record["after_task"]) == i), kind)
+                for i in range(len(self.scenario.tasks))
+            ]
         summary = {
             "tasks": [t.__dict__ for t in self.scenario.tasks],
             "average_accuracy": self.metric_matrix.average_accuracy(kind="acc"),
@@ -226,6 +261,9 @@ class Trainer:
             "ap_forgetting": self.metric_matrix.average_forgetting(kind="ap"),
             "average_f1": self.metric_matrix.average_accuracy(kind="f1"),
             "f1_forgetting": self.metric_matrix.average_forgetting(kind="f1"),
+            "official_average_accuracy": float(np.nanmean(official_weighted_curves["acc"])),
+            "official_last_accuracy": float(official_weighted_curves["acc"][-1]) if official_weighted_curves["acc"] else float("nan"),
+            "official_weighted_curves": official_weighted_curves,
             "tables": tables,
         }
         with open(self.output_dir / "summary.json", "w", encoding="utf-8") as f:

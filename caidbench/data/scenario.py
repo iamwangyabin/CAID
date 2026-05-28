@@ -107,23 +107,23 @@ class ContinualScenario:
             )
         return tasks
 
-    def seen_dataset(self, split: str, upto_index: int) -> Dataset:
+    def seen_dataset(self, split: str, upto_index: int, transform_split: str | None = None) -> Dataset:
         idx: list[int] = []
         for task_index in range(upto_index + 1):
             idx.extend(self._split_indices.get((task_index, split), []))
         return self.source.make_dataset(
             idx,
-            transform_cfg=self._transform_for_split(split),
+            transform_cfg=self._transform_for_split(transform_split or split),
             task_id=-1,
             task_name=f"seen_until_{upto_index}",
         )
 
-    def task_dataset(self, split: str, task_index: int) -> Dataset:
+    def task_dataset(self, split: str, task_index: int, transform_split: str | None = None) -> Dataset:
         task = self.tasks[task_index]
         idx = self._split_indices.get((task_index, split), [])
         return self.source.make_dataset(
             idx,
-            transform_cfg=self._transform_for_split(split),
+            transform_cfg=self._transform_for_split(transform_split or split),
             task_id=task.task_id,
             task_name=task.name,
         )

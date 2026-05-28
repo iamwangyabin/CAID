@@ -38,6 +38,7 @@ method:
       type: timm
       name: vit_base_patch16_224
       pretrained: true
+      out_dim: null
   tuned_epoch: 20
   init_lr: 0.01
   weight_decay: 0.0005
@@ -51,6 +52,8 @@ method:
   truncate_percent: 25
   ridge: 0
   tsvd_batch_size: 1000
+  tsvd_update_threshold: 10000
+  use_test_transform_for_tsvd: true
   use_RE: true
   use_relu: true
   coslinear: false

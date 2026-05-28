@@ -12,7 +12,7 @@ train:
     weight_decay: 0.0002
 method:
   name: soyo
-  implementation: feature_space
+  implementation: official
   net_type: soyo_vit
   num_classes: 2
   detector_cfg:

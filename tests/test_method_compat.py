@@ -12,7 +12,7 @@ from caidbench.methods.dce import CosineLinear, DCEMethod, DCESelector
 from caidbench.methods.duct import DUCTMethod, _sinkhorn_uniform
 from caidbench.methods.hsic_bottleneck import HSICBottleneckMethod
 from caidbench.methods.layup import LayUPMethod, RidgeAccumulator
-from caidbench.methods.loranpac import OnlineTruncatedSVDSolver
+from caidbench.methods.loranpac import LoRanPACMethod, OnlineTruncatedSVDSolver
 from caidbench.methods.pina import PINAMethod
 from caidbench.methods.sur_lid import SURLIDMethod, _kd_loss
 
@@ -122,12 +122,56 @@ def test_layup_ridge_loader_uses_test_transform_without_shuffle():
     assert loader.sampler.__class__.__name__ == "SequentialSampler"
 
 
-def test_loranpac_rank_schedule_uses_total_samples():
+def test_loranpac_rank_schedule_uses_total_samples_after_official_flush():
     solver = OnlineTruncatedSVDSolver(feature_dim=20, num_classes=2, rank=100, truncate_percent=25)
     solver.update(torch.randn(10, 20), torch.arange(10) % 2)
+    assert solver.s.numel() == 0
+    solver.finalize()
     assert solver.s.numel() == 8
     solver.update(torch.randn(10, 20), torch.arange(10) % 2)
+    solver.finalize()
     assert solver.s.numel() == 15
+
+
+def test_loranpac_tsvd_loader_uses_test_transform_with_shuffle():
+    calls = []
+
+    class Source:
+        def make_dataset(self, indices, transform_cfg=None, task_id=None, task_name=None):
+            calls.append(
+                {
+                    "indices": list(indices),
+                    "transform_cfg": transform_cfg,
+                    "task_id": task_id,
+                    "task_name": task_name,
+                }
+            )
+            return [{"x": torch.zeros(3, 8, 8), "y": 0}]
+
+    task = SimpleNamespace(task_id=3, name="GauGAN")
+    scenario = SimpleNamespace(
+        source=Source(),
+        tasks=[task],
+        _split_indices={(0, "train"): [5, 2, 9]},
+        _transform_for_split=lambda split: f"{split}_transform",
+    )
+    trainer = SimpleNamespace(scenario=scenario, batch_size=2, num_workers=0)
+    method = object.__new__(LoRanPACMethod)
+    method.use_test_transform_for_tsvd = True
+    method.tsvd_batch_size = 7
+
+    loader = method._build_tsvd_loader(trainer, task, fallback_loader=None)
+
+    assert calls == [
+        {
+            "indices": [5, 2, 9],
+            "transform_cfg": "test_transform",
+            "task_id": 3,
+            "task_name": "GauGAN",
+        }
+    ]
+    assert loader.batch_size == 7
+    assert loader.sampler.__class__.__name__ == "RandomSampler"
 
 
 def test_pina_routes_with_official_l1_distance():
@@ -163,6 +207,52 @@ def test_dce_uses_sigma_cosine_head_and_mlp_selector():
 
     assert head.sigma is not None
     assert isinstance(selector_method.selector, DCESelector)
+    assert selector_method.feature_scaling_mode == 1
+
+
+def test_dce_uses_domain_level_class_counts():
+    method = DCEMethod(detector_cfg=_detector_cfg(out_dim=4), total_sessions=2)
+    task = SimpleNamespace(task_id=0, name="task0")
+    loader = SimpleNamespace(dataset=SimpleNamespace(labels=torch.tensor([0, 0, 0, 0])))
+
+    method.before_task(task, loader)
+
+    assert torch.allclose(method.current_class_counts, torch.tensor([4.0, 0.1]))
+
+
+def test_dce_reinitializes_selector_like_official_update_fc():
+    method = DCEMethod(detector_cfg=_detector_cfg(out_dim=4), total_sessions=4)
+    method.before_task(SimpleNamespace(task_id=0, name="task0"), train_loader=None)
+    assert method.selector.net[-1].out_features == 3
+    first_selector = method.selector
+
+    method.before_task(SimpleNamespace(task_id=1, name="task1"), train_loader=None)
+
+    assert method.selector is not first_selector
+    assert method.selector.net[-1].out_features == 6
+
+
+def test_dce_covariance_matches_official_task_average():
+    method = DCEMethod(
+        detector_cfg=_detector_cfg(out_dim=4),
+        total_sessions=2,
+        margin_sample_num=2,
+        covariance_jitter=0.0,
+    )
+    features = torch.tensor(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [1.2, 0.1, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+        ]
+    )
+    labels = torch.tensor([0, 0, 1])
+
+    method._update_stats("task0", features, labels)
+
+    cov0 = method.stats[("task0", 0)][1]
+    cov1 = method.stats[("task0", 1)][1]
+    assert torch.allclose(cov0, cov1)
 
 
 def test_duct_sinkhorn_transport_is_doubly_stochastic():
@@ -171,6 +261,21 @@ def test_duct_sinkhorn_transport_is_doubly_stochastic():
 
     assert torch.allclose(transport.sum(dim=0), torch.full((2,), 0.5, dtype=torch.double), atol=1e-4)
     assert torch.allclose(transport.sum(dim=1), torch.full((2,), 0.5, dtype=torch.double), atol=1e-4)
+
+
+def test_duct_update_fc_matches_official_dynamic_cosine_head():
+    method = DUCTMethod(detector_cfg=_detector_cfg(out_dim=4), increment=2, total_sessions=2)
+    method._update_fc(2)
+    assert method.expanded_head is not None
+    old_weight = torch.full_like(method.expanded_head.weight, 0.25)
+    method.expanded_head.weight.data.copy_(old_weight)
+    method.expanded_head.sigma.data.fill_(7.0)
+
+    method._update_fc(4)
+
+    assert method.expanded_head.out_features == 4
+    assert torch.allclose(method.expanded_head.weight[:2], old_weight)
+    assert torch.allclose(method.expanded_head.sigma, torch.ones_like(method.expanded_head.sigma))
 
 
 def test_duct_transport_classifier_handles_float_head_with_double_sinkhorn():

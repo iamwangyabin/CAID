@@ -48,6 +48,10 @@ def main() -> None:
                 "eval/average_auc": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="auc"),
                 "eval/average_ap": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="ap"),
                 "eval/average_f1": trainer.metric_matrix.average_accuracy(train_index=row_index, kind="f1"),
+                "eval/official_weighted_accuracy": trainer._weighted_records(eval_rows, "acc"),
+                "eval/official_weighted_auc": trainer._weighted_records(eval_rows, "auc"),
+                "eval/official_weighted_ap": trainer._weighted_records(eval_rows, "ap"),
+                "eval/official_weighted_f1": trainer._weighted_records(eval_rows, "f1"),
                 "eval/after_task": checkpoint_task_index,
             }
         )
@@ -64,6 +68,8 @@ def main() -> None:
                 "summary/ap_forgetting": summary["ap_forgetting"],
                 "summary/average_f1": summary["average_f1"],
                 "summary/f1_forgetting": summary["f1_forgetting"],
+                "summary/official_average_accuracy": summary["official_average_accuracy"],
+                "summary/official_last_accuracy": summary["official_last_accuracy"],
             }
         )
         print(json.dumps(summary, indent=2, ensure_ascii=False))

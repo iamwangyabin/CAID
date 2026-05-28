@@ -34,13 +34,38 @@ class SmallConvBackbone(nn.Module):
 class TimmBackbone(nn.Module):
     """Optional timm wrapper. Import is lazy so CAIDBench works without timm."""
 
-    def __init__(self, model_name: str, pretrained: bool = True, out_dim: int | None = None, drop_rate: float = 0.0) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        pretrained: bool = True,
+        out_dim: int | None = None,
+        drop_rate: float = 0.0,
+        pretrained_cfg_overlay: dict[str, Any] | None = None,
+        checkpoint_path: str | None = None,
+    ) -> None:
         super().__init__()
         try:
             import timm  # type: ignore
         except Exception as e:  # pragma: no cover - optional dependency
             raise ImportError("Install timm to use TimmBackbone") from e
-        self.model = timm.create_model(model_name, pretrained=pretrained, num_classes=0)
+        create_kwargs: dict[str, Any] = {"pretrained": pretrained, "num_classes": 0}
+        if pretrained_cfg_overlay:
+            create_kwargs["pretrained_cfg_overlay"] = pretrained_cfg_overlay
+        try:
+            self.model = timm.create_model(model_name, **create_kwargs)
+        except TypeError as e:
+            if pretrained_cfg_overlay:
+                raise TypeError(
+                    "Installed timm does not support pretrained_cfg_overlay; upgrade timm "
+                    "or set backbone.checkpoint_path to an official local checkpoint."
+                ) from e
+            raise
+        if checkpoint_path:
+            try:
+                from timm.models import load_checkpoint  # type: ignore
+            except Exception as e:  # pragma: no cover - optional dependency
+                raise ImportError("Installed timm does not expose timm.models.load_checkpoint") from e
+            load_checkpoint(self.model, checkpoint_path, strict=False)
         dim = getattr(self.model, "num_features", None)
         if dim is None:
             raise ValueError(f"Cannot infer feature dimension for timm model {model_name}")
@@ -203,6 +228,8 @@ def build_backbone(cfg: dict[str, Any] | None = None) -> nn.Module:
             pretrained=bool(cfg.get("pretrained", True)),
             out_dim=cfg.get("out_dim"),
             drop_rate=float(cfg.get("drop_rate", 0.0)),
+            pretrained_cfg_overlay=cfg.get("pretrained_cfg_overlay"),
+            checkpoint_path=cfg.get("checkpoint_path") or cfg.get("pretrained_path"),
         )
     if kind in {"clip", "clip_vision", "online_clip", "open_clip"}:
         return CLIPVisionBackbone(

@@ -14,7 +14,7 @@ from .base import ContinualMethod, batch_to_device
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
     y = y.long()
     if y.numel() and (int(y.min()) < 0):
-        raise ValueError("Labels must be non-negative for official DIL methods.")
+        raise ValueError("Labels must be non-negative for domain-incremental methods.")
     return torch.remainder(y, int(num_classes))
 
 
@@ -259,8 +259,10 @@ class DUCTMethod(ContinualMethod):
                 continue
             old_means = torch.stack([self._class_means[cls] for cls in old_classes]).to(self.device)
             cost = torch.cdist(cur_means.float(), old_means.float(), p=2)
-            transport = _sinkhorn_uniform(cost, self.ot_reg).to(device=self.device, dtype=self.expanded_head.weight.dtype)
-            transported = transport.t().matmul(cur_weight.to(torch.double)).to(dtype=self.expanded_head.weight.dtype)
+            transport = _sinkhorn_uniform(cost, self.ot_reg).to(device=self.device)
+            transported = transport.t().matmul(
+                cur_weight.to(device=self.device, dtype=transport.dtype)
+            ).to(dtype=self.expanded_head.weight.dtype)
             old_weight = self.expanded_head.weight[old_start:old_end]
             old_weight.copy_((1.0 - self.head_merge_ratio) * old_weight + self.head_merge_ratio * transported)
 

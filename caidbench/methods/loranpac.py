@@ -15,7 +15,7 @@ from .base import ContinualMethod, batch_to_device, freeze_module
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
     y = y.long()
     if y.numel() and (int(y.min()) < 0):
-        raise ValueError("Labels must be non-negative for official DIL methods.")
+        raise ValueError("Labels must be non-negative for domain-incremental methods.")
     return torch.remainder(y, int(num_classes))
 
 
@@ -28,7 +28,7 @@ def _one_hot(y: torch.Tensor, num_classes: int, dtype: torch.dtype = torch.float
 
 
 class FrozenFeatureMethod(ContinualMethod):
-    """Common frozen-detector feature path for official DIL reproductions."""
+    """Common frozen-detector feature path for domain-incremental reproductions."""
 
     def __init__(self, freeze_backbone: bool = True, normalize_features: bool = False, **kwargs: Any) -> None:
         super().__init__(**kwargs)

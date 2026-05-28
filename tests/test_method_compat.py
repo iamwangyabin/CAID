@@ -9,7 +9,7 @@ from torch import nn
 from caidbench.methods.ca_adapter_cail import ContentAgnosticAdapterCAIL
 from caidbench.methods.cp_prompt import CPPromptMethod
 from caidbench.methods.dce import CosineLinear, DCEMethod, DCESelector
-from caidbench.methods.duct import _sinkhorn_uniform
+from caidbench.methods.duct import DUCTMethod, _sinkhorn_uniform
 from caidbench.methods.hsic_bottleneck import HSICBottleneckMethod
 from caidbench.methods.layup import LayUPMethod, RidgeAccumulator
 from caidbench.methods.loranpac import OnlineTruncatedSVDSolver
@@ -171,3 +171,19 @@ def test_duct_sinkhorn_transport_is_doubly_stochastic():
 
     assert torch.allclose(transport.sum(dim=0), torch.full((2,), 0.5, dtype=torch.double), atol=1e-4)
     assert torch.allclose(transport.sum(dim=1), torch.full((2,), 0.5, dtype=torch.double), atol=1e-4)
+
+
+def test_duct_transport_classifier_handles_float_head_with_double_sinkhorn():
+    method = DUCTMethod(detector_cfg=_detector_cfg(out_dim=4), increment=2, total_sessions=2)
+    method._current_index = 1
+    method._class_means = {
+        0: torch.tensor([1.0, 0.0, 0.0, 0.0]),
+        1: torch.tensor([0.0, 1.0, 0.0, 0.0]),
+        2: torch.tensor([0.9, 0.1, 0.0, 0.0]),
+        3: torch.tensor([0.1, 0.9, 0.0, 0.0]),
+    }
+
+    method._transport_classifier()
+
+    assert method.expanded_head.weight.dtype == torch.float32
+    assert torch.isfinite(method.expanded_head.weight[:2]).all()

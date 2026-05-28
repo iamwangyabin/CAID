@@ -111,7 +111,8 @@ Implemented method keys:
 
 ```text
 finetune, cddb, e3, ca_adapter_cail, hsic_bottleneck, saido,
-cored, dfil, prompt2guard, sprompts, hdp, sur_lid
+cored, dfil, prompt2guard, sprompts, ranpac, layup, pina,
+pina_d, cp_prompt, duct, soyo, loranpac, dce, hdp, sur_lid
 ```
 
 These modules are framework implementations of the paper mechanisms, not direct

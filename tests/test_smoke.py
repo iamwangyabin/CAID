@@ -352,7 +352,7 @@ def test_hsic_online_image_smoke(tmp_path):
         ("dce", {"init_epoch": 1, "epochs": 1, "bal_epoch": 1, "selector_epoch": 1, "num_sampled_pcls": 2}),
     ],
 )
-def test_compact_official_dil_methods_smoke(tmp_path, method_name, overrides):
+def test_compact_domain_incremental_methods_smoke(tmp_path, method_name, overrides):
     cfg = base_cfg(tmp_path, method_name)
     cfg["train"]["epochs"] = 1
     cfg["train"]["batch_size"] = 2

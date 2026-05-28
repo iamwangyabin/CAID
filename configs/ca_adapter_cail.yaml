@@ -1,4 +1,5 @@
 _base_: _base.yaml
+output_dir: outputs/ca_adapter_cail_cddb_hard
 method:
   name: ca_adapter_cail
   adapter_bottleneck: 32

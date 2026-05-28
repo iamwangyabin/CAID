@@ -1,4 +1,5 @@
 _base_: _base.yaml
+output_dir: outputs/saido_cddb_hard
 method:
   name: saido
   lora_rank: 8

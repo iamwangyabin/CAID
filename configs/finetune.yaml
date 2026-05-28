@@ -1,3 +1,4 @@
 _base_: _base.yaml
+output_dir: outputs/finetune_cddb_hard
 method:
   name: finetune

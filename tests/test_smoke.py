@@ -305,7 +305,7 @@ def test_soyo_official_vit_smoke(tmp_path):
             "soyo_lr": 1e-2,
             "init_epoch": 1,
             "epochs": 1,
-            "backbone": {"type": "timm", "name": "vit_tiny_patch16_224", "pretrained": False, "img_size": 16},
+            "backbone": {"type": "timm", "name": "vit_tiny_patch16_224", "pretrained": False, "img_size": 16, "out_dim": 8},
         }
     )
 

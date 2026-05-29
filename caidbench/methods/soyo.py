@@ -381,6 +381,8 @@ class SOYOPromptedTimmViTEncoder(nn.Module):
         cfg.pop("type", None)
         model_name = str(cfg.pop("name", cfg.pop("model_name", "vit_base_patch16_224")))
         pretrained = bool(cfg.pop("pretrained", True))
+        # CAID wrapper backbones use out_dim for projection; raw timm ViTs do not accept it.
+        cfg.pop("out_dim", None)
         self.model = timm.create_model(model_name, pretrained=pretrained, num_classes=0, **cfg)
         if not all(hasattr(self.model, name) for name in ["patch_embed", "cls_token", "pos_embed", "blocks", "norm"]):
             raise TypeError(f"{model_name} is not a timm VisionTransformer compatible with official SOYO.")

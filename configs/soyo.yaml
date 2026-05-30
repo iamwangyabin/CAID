@@ -21,6 +21,7 @@ method:
       type: timm
       name: vit_base_patch16_224
       pretrained: true
+      out_dim: null
   dataset: cddb
   init_cls: 2
   increment: 2

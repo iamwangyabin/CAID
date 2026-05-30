@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 
 from .object_labels import parse_object_labels
 from .transforms import build_transform
-from .arrow_schema import AID_IMAGE_COLUMN, AID_MAPPING_FILE, read_aid_split_sidecars, read_caid_meta_sidecar
+from .arrow_schema import AID_MAPPING_FILE, read_aid_split_sidecars, read_caid_meta_sidecar
 from .hub import resolve_data_path
 
 _IMAGE_LIKE_DEFAULTS = ("image", "image_bytes", "bytes", "jpg", "png")

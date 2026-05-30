@@ -87,7 +87,6 @@ def normalize_records(
     *,
     root: str | Path | None = None,
     strict_images: bool = False,
-    **_: Any,
 ) -> pd.DataFrame:
     """Normalize arbitrary scanner records into a minimal sidecar index.
 
@@ -293,35 +292,6 @@ def write_arrow_table(
             with ipc.new_file(sink, table.schema) as writer:
                 writer.write_table(table)
     return out_path
-
-
-def read_index_sidecar(path: str | Path) -> pd.DataFrame:
-    root = Path(path)
-    if root.is_file():
-        root = root.parent
-    index_path = root / AID_INDEX_FILE
-    if not index_path.exists():
-        raise FileNotFoundError(f"AID sidecar not found: {index_path}")
-    return normalize_records(_read_jsonl(index_path))
-
-
-def read_any_table_to_df(path: str | Path) -> pd.DataFrame:
-    """Debug helper: return sidecar index for AID datasets, else Arrow table."""
-    path = Path(path)
-    if path.is_dir() and (path / AID_INDEX_FILE).exists():
-        return read_index_sidecar(path)
-    import pyarrow.ipc as ipc
-    import pyarrow.parquet as pq
-    import pyarrow as pa
-
-    if path.suffix.lower() == ".parquet":
-        return pq.read_table(path).to_pandas()
-    with pa.memory_map(str(path), "r") as source:
-        try:
-            return ipc.open_file(source).read_all().to_pandas()
-        except pa.ArrowInvalid:
-            source.seek(0)
-            return ipc.open_stream(source).read_all().to_pandas()
 
 
 def read_caid_meta_sidecar(path: str | Path) -> pd.DataFrame | None:

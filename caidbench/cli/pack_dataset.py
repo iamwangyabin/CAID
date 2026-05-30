@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 from ..data.arrow_schema import CANONICAL_COLUMNS, write_arrow_table
 from ..data.dataset_packers import PACKERS
@@ -16,9 +15,6 @@ def main() -> None:
     parser.add_argument("--root", default=None, help="Dataset root. Required for scanner-based packers and path resolution")
     parser.add_argument("--out", required=True, help="Output AID-style HF dataset directory")
     parser.add_argument("--format", choices=["aid", "arrow", "parquet"], default="aid")
-    parser.add_argument("--embed-images", action="store_true", help="Deprecated/no-op: AID-style output always stores image bytes in column `image`")
-    parser.add_argument("--compute-sha1", action="store_true", help="Deprecated/no-op: AID sidecars do not store SHA1 hashes")
-    parser.add_argument("--no-size", action="store_true", help="Deprecated/no-op: AID sidecars do not store image width/height")
     parser.add_argument("--strict-images", action="store_true", help="Fail if referenced images are missing")
     parser.add_argument("--default-split", default="train", help="Split assigned when no split folder is found")
     parser.add_argument("--preprocess-profile", default="", help="Value written to preprocess_profile column")
@@ -28,9 +24,6 @@ def main() -> None:
 
     packer = PACKERS[args.kind]
     common = dict(
-        embed_images=args.embed_images,
-        compute_sha1=args.compute_sha1,
-        compute_size=not args.no_size,
         strict_images=args.strict_images,
         default_split=args.default_split,
         preprocess_profile=args.preprocess_profile,

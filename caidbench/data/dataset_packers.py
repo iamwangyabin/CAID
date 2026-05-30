@@ -279,8 +279,6 @@ def _scan_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _norm_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    # AID-style Arrow stores only image bytes in the Arrow table and keeps all
-    # metadata in sidecars; these options are accepted for CLI compatibility.
     return {"strict_images": bool(kwargs.get("strict_images", False))}
 
 PACKERS = {

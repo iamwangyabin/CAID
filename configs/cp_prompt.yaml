@@ -12,7 +12,7 @@ train:
     weight_decay: 0.0005
 method:
   name: cp_prompt
-  implementation: feature_space
+  implementation: official
   num_classes: 2
   detector_cfg:
     num_classes: 2
@@ -27,6 +27,8 @@ method:
   total_sessions: 5
   task_name: [gaugan, biggan, wild, whichfaceisreal, san]
   knn_k: 5
+  query_type: vit_query
+  embd_dim: 768
   prefix_tuning: keqv
   is_fix_share_prompt: true
   share_prompt_length: 6

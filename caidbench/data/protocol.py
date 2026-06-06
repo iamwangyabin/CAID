@@ -146,6 +146,11 @@ def task_split_specs(task_cfg: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
       filter: {include: {dataset: FF++}}
     """
     base = task_cfg.get("filter", task_cfg.get("include"))
+    if base is None:
+        for selector in ("task_hint", "dir_name", "generator", "domain", "dataset"):
+            if selector in task_cfg:
+                base = {"include": {selector: task_cfg[selector]}}
+                break
     if base is not None and "include" not in base and "filter" not in task_cfg:
         # task.include is a shortcut for filter.include
         base = {"include": base}

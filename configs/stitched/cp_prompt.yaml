@@ -1,0 +1,20 @@
+_base_: ../cp_prompt.yaml
+output_dir: outputs/stitched/cp_prompt
+scenario:
+  data:
+    backend: stitched_arrow
+    path: /home/home/yabin/stitched_datasets_merged
+    image_column: image
+    label_column: label
+    generator_column: generator_name
+    dataset_column: source_dataset
+    source_path_column: source_path
+    split_column: split
+    task_hint_mode: dir
+    domain_from: dir_name
+    remote: null
+  protocol: protocols/examples/stitched_generator_incremental.yaml
+method:
+  dataset: stitched
+  total_sessions: 54
+  task_name: ["ProGAN", "DeepFakes", "BigGAN", "SC-FEGAN", "Pluralistic", "ATVG-Net", "MaskGAN", "FaceShifter", "StarGAN2", "DiscoFaceGAN", "ADM", "LaMa", "VQDM / VQ-Diffusion", "GLIDE", "RePaint-LDM", "RePaint-P2", "Wukong", "SD1.4", "SD1.5", "SD2.1", "Midjourney v5", "SD1.5 DreamShaper", "SDXL-base", "DALL-E 3", "Realistic Vision v5.1 Novae", "SDXL Juggernaut", "Midjourney v6", "Animagine XL 3.0", "Playground-v2.5", "Animagine XL 3.1", "Pony", "Kolors", "FLUX.1", "Imagen 3.0", "FLUX.1.1 Pro", "NoobAI", "SD3.5", "Grok-2-Image-1212", "Animagine XL 4.0", "Ideogram 3.0", "GPT-Image-1", "HiDream-I1", "Seedream", "Imagen-4", "Nano Banana", "Qwen-Image", "Chroma", "Tiny-Random-Sana", "FLUX.2-dev", "FLUX.2 Klein 4B", "CyberRealistic XL v9.0", "Anima", "SDXL RealVisXL v5", "Nano Banana 2"]

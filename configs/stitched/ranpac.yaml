@@ -1,0 +1,16 @@
+_base_: ../ranpac.yaml
+output_dir: outputs/stitched/ranpac
+scenario:
+  data:
+    backend: stitched_arrow
+    path: /home/home/yabin/stitched_datasets_merged
+    image_column: image
+    label_column: label
+    generator_column: generator_name
+    dataset_column: source_dataset
+    source_path_column: source_path
+    split_column: split
+    task_hint_mode: dir
+    domain_from: dir_name
+    remote: null
+  protocol: protocols/examples/stitched_generator_incremental.yaml

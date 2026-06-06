@@ -1,0 +1,4 @@
+_base_: ../stitched_finetune.yaml
+output_dir: outputs/stitched/base
+method:
+  name: finetune

@@ -54,11 +54,18 @@ def _series_membership_in(series: pd.Series, values: Any) -> pd.Series:
     if not vals:
         return pd.Series([True] * len(series), index=series.index)
 
+    text = series.astype(str)
+    exact = text.isin(vals)
+    # Stitched Arrow task hints are scalar directory names. Avoid a Python
+    # per-row split over million-row metadata frames in that common path.
+    if not text.str.contains(";", regex=False).any():
+        return exact
+
     def has_any(x: Any) -> bool:
         parts = {p for p in str(x).split(";") if p != ""}
         return bool(parts & vals) or str(x) in vals
 
-    return series.map(has_any)
+    return exact | series.map(has_any)
 
 
 def apply_filter(df: pd.DataFrame, spec: Mapping[str, Any] | None) -> pd.DataFrame:

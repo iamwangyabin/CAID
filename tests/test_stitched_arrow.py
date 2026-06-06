@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
+import caidbench.data.scenario as scenario_mod
 from caidbench.data.scenario import ContinualScenario
 
 
@@ -64,3 +65,25 @@ def test_stitched_arrow_backend_builds_protocol_tasks(tmp_path):
     assert sample["task_hint"] == "DALL_E_3"
     assert sample["generator"] == "DALL-E 3"
     assert sample["dir_name"] == "DALL_E_3"
+
+
+def test_stitched_arrow_protocol_uses_fast_index_path(tmp_path, monkeypatch):
+    root = tmp_path / "stitched"
+    _write_split(root / "ADM" / "train.arrow", "ADM", "train")
+    _write_split(root / "ADM" / "test.arrow", "ADM", "test")
+
+    def fail_apply_filter(*args, **kwargs):
+        raise AssertionError("stitched task_hint filters should use source.select_indices")
+
+    monkeypatch.setattr(scenario_mod, "apply_filter", fail_apply_filter)
+
+    scenario = ContinualScenario.from_config(
+        {
+            "data": {"backend": "stitched_arrow", "path": str(root), "image_column": "image"},
+            "protocol": {"tasks": [{"id": "adm", "name": "ADM", "numeric_id": 0, "task_hint": "ADM"}]},
+            "transform": {"default": {"trsf": [{"_target_": "caidbench.data.transforms.ToTensor"}]}},
+        }
+    )
+
+    assert scenario.tasks[0].num_train == 2
+    assert scenario.tasks[0].num_test == 2

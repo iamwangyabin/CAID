@@ -187,6 +187,10 @@ class StitchedArrowDataSource:
     def __init__(self, loaded: LoadedStitchedArrow) -> None:
         self.loaded = loaded
         self.metadata = loaded.metadata
+        self._split_task_indices: dict[tuple[str, str], list[int]] = {
+            (str(task_hint), str(split)): [int(i) for i in group.index.tolist()]
+            for (task_hint, split), group in self.metadata.groupby(["task_hint", "split"], sort=False)
+        }
 
     @classmethod
     def from_config(cls, cfg: Mapping[str, Any]) -> "StitchedArrowDataSource":
@@ -325,3 +329,40 @@ class StitchedArrowDataSource:
         task_name: str | None = None,
     ) -> StitchedArrowImageDataset:
         return StitchedArrowImageDataset(self.loaded, indices=row_indices, transform_cfg=transform_cfg, task_id=task_id, task_name=task_name)
+
+    def select_indices(self, spec: Mapping[str, Any] | None) -> list[int] | None:
+        """Fast path for simple stitched generator/split protocol filters.
+
+        The stitched dataset is physically partitioned as `<generator>/<split>.arrow`.
+        For the common protocol shape, avoid scanning the full metadata frame for
+        every task and split; return the precomputed row-index list directly.
+        """
+        if spec is None:
+            return None
+        spec = dict(spec)
+        if any(k in spec for k in ("exclude", "query", "where", "sample", "limit")):
+            return None
+        split = spec.get("split")
+        if split is None:
+            return None
+        include = dict(spec.get("include", {}) or {})
+        for k, v in spec.items():
+            if k not in {"include", "split"}:
+                include[k] = v
+        selector = None
+        values = None
+        for key in ("task_hint", "dir_name"):
+            if key in include:
+                selector = key
+                values = include[key]
+                break
+        if selector is None or values is None:
+            return None
+        if isinstance(values, (list, tuple, set)):
+            task_hints = [str(v) for v in values]
+        else:
+            task_hints = [str(values)]
+        out: list[int] = []
+        for task_hint in task_hints:
+            out.extend(self._split_task_indices.get((task_hint, str(split)), []))
+        return out

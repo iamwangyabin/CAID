@@ -86,8 +86,13 @@ class ContinualScenario:
             all_rows = []
             counts = {}
             for split, spec in specs.items():
-                sdf = apply_filter(self.df, spec)
-                idx = [int(i) for i in sdf.index.tolist()]
+                fast_select = getattr(self.source, "select_indices", None)
+                idx = fast_select(spec) if callable(fast_select) else None
+                if idx is None:
+                    sdf = apply_filter(self.df, spec)
+                    idx = [int(i) for i in sdf.index.tolist()]
+                else:
+                    sdf = self.df.iloc[idx]
                 self._split_indices[(task_index, split)] = idx
                 counts[split] = len(idx)
                 if len(sdf):

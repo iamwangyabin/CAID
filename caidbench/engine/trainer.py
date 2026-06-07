@@ -95,6 +95,10 @@ class Trainer:
         self.max_epochs = int(train_cfg.get("epochs", 1))
         self.batch_size = int(train_cfg.get("batch_size", 32))
         self.num_workers = int(train_cfg.get("num_workers", 0))
+        self.pin_memory = bool(train_cfg.get("pin_memory", self.device.type == "cuda"))
+        self.persistent_workers = bool(train_cfg.get("persistent_workers", self.num_workers > 0))
+        self.prefetch_factor = train_cfg.get("prefetch_factor", 2 if self.num_workers > 0 else None)
+        self.non_blocking = bool(train_cfg.get("non_blocking", self.pin_memory and self.device.type == "cuda"))
         self.drop_last = bool(train_cfg.get("drop_last", False))
         self.train_log_interval = int(train_cfg.get("log_interval", 50))
         if self.train_log_interval <= 0:
@@ -122,7 +126,16 @@ class Trainer:
     ):
         ds = self.scenario.task_dataset(split, task_index, transform_split=transform_split)
         effective_drop_last = self.drop_last and split == "train" if drop_last is None else bool(drop_last)
-        loader = build_dataloader(ds, batch_size=self.batch_size, shuffle=shuffle, num_workers=self.num_workers, drop_last=effective_drop_last)
+        loader = build_dataloader(
+            ds,
+            batch_size=self.batch_size,
+            shuffle=shuffle,
+            num_workers=self.num_workers,
+            drop_last=effective_drop_last,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers,
+            prefetch_factor=self.prefetch_factor,
+        )
         task = self.scenario.tasks[task_index]
         return _ProgressDataLoader(
             loader,
@@ -248,7 +261,7 @@ class Trainer:
             else:
                 bar = train_loader
             for batch in bar:
-                batch = move_to_device(batch, self.device)
+                batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
                 out = method.observe(batch, task)
                 loss = out["loss"]
                 optimizer.zero_grad(set_to_none=True)
@@ -286,7 +299,7 @@ class Trainer:
         logits_list: list[torch.Tensor] = []
         y_list: list[torch.Tensor] = []
         for batch in loader:
-            batch = move_to_device(batch, self.device)
+            batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
             out = self.method.predict(batch)
             logits_list.append(out["logits"].detach().cpu())
             y_list.append(batch["y"].detach().cpu())

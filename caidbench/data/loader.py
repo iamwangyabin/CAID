@@ -30,12 +30,20 @@ def build_dataloader(
     shuffle: bool = False,
     num_workers: int = 0,
     drop_last: bool = False,
+    pin_memory: bool = False,
+    persistent_workers: bool = False,
+    prefetch_factor: int | None = None,
 ) -> DataLoader:
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        drop_last=drop_last,
-        collate_fn=_collate,
-    )
+    kwargs: dict[str, Any] = {
+        "batch_size": batch_size,
+        "shuffle": shuffle,
+        "num_workers": num_workers,
+        "drop_last": drop_last,
+        "collate_fn": _collate,
+        "pin_memory": pin_memory,
+    }
+    if num_workers > 0:
+        kwargs["persistent_workers"] = persistent_workers
+        if prefetch_factor is not None:
+            kwargs["prefetch_factor"] = int(prefetch_factor)
+    return DataLoader(dataset, **kwargs)

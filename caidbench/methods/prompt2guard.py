@@ -696,8 +696,9 @@ class Prompt2GuardMethod(ContinualMethod):
             else:
                 bar = train_loader
             for batch_idx, batch in enumerate(bar, start=1):
-                x = batch["x"].to(self.device)
-                y = batch["y"].long().to(self.device)
+                non_blocking = bool(getattr(trainer, "non_blocking", False))
+                x = batch["x"].to(self.device, non_blocking=non_blocking)
+                y = batch["y"].long().to(self.device, non_blocking=non_blocking)
                 out = self.network(x, self._object_labels_for_batch(batch))
                 loss = F.cross_entropy(out["logits"], y, label_smoothing=self.label_smoothing)
                 optimizer.zero_grad(set_to_none=True)

@@ -710,6 +710,17 @@ class Prompt2GuardMethod(ContinualMethod):
                 pred = out["logits"].argmax(dim=1)
                 correct += int((pred == y).sum().detach().cpu())
                 total += int(y.numel())
+                if getattr(trainer, "train_log_interval", 0) > 0 and batch_idx % trainer.train_log_interval == 0:
+                    trainer.log_train_metrics(
+                        {
+                            "loss": total_loss / max(batch_idx, 1),
+                            "acc": correct / max(total, 1),
+                        },
+                        task=task,
+                        epoch=epoch + 1,
+                        epochs=epochs,
+                        optimizer=optimizer,
+                    )
                 if hasattr(bar, "set_postfix"):
                     bar.set_postfix(
                         loss=f"{total_loss / max(batch_idx, 1):.4f}",
@@ -719,8 +730,8 @@ class Prompt2GuardMethod(ContinualMethod):
                     )
             trainer.log_train_metrics(
                 {
-                    "prompt2guard_loss": total_loss / max(len(train_loader), 1),
-                    "prompt2guard_acc": correct / max(total, 1),
+                    "loss": total_loss / max(len(train_loader), 1),
+                    "acc": correct / max(total, 1),
                 },
                 task=task,
                 epoch=epoch + 1,

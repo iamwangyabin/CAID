@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Iterable, Mapping
+from pathlib import Path
+
+try:
+    from tqdm.auto import tqdm
+except Exception:  # pragma: no cover - optional dependency
+    tqdm = None
 
 import numpy as np
 import pandas as pd
@@ -49,12 +54,17 @@ class Trainer:
         self.batch_size = int(train_cfg.get("batch_size", 32))
         self.num_workers = int(train_cfg.get("num_workers", 0))
         self.drop_last = bool(train_cfg.get("drop_last", False))
+        self.train_log_interval = int(train_cfg.get("log_interval", 50))
+        if self.train_log_interval <= 0:
+            self.train_log_interval = 0
+        self.show_tqdm = bool(train_cfg.get("tqdm", True))
         self.grad_clip = train_cfg.get("grad_clip")
         self.grad_clip = None if self.grad_clip is None else float(self.grad_clip)
         self.optimizer_cfg = dict(train_cfg.get("optimizer", {"type": "adamw", "lr": 1e-4}))
         self.metric_matrix = ContinualMetricMatrix([t.name for t in self.scenario.tasks])
         self.eval_records: list[dict[str, Any]] = []
         self.global_step = 0
+        self._active_train_task_index: float | None = None
         self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name))
 
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
@@ -72,13 +82,119 @@ class Trainer:
         effective_drop_last = self.drop_last and split == "train" if drop_last is None else bool(drop_last)
         return build_dataloader(ds, batch_size=self.batch_size, shuffle=shuffle, num_workers=self.num_workers, drop_last=effective_drop_last)
 
+    @staticmethod
+    def _scalar_train_metrics(metrics: Mapping[str, Any]) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for key, value in metrics.items():
+            if key == "logits":
+                continue
+            if torch.is_tensor(value):
+                if value.ndim != 0:
+                    continue
+                value = value.detach().cpu().item()
+            if isinstance(value, (int, float)):
+                out[str(key)] = float(value)
+        return out
+
+    def log_train_metrics(
+        self,
+        metrics: Mapping[str, Any],
+        *,
+        task: TaskSpec | Any | None = None,
+        task_index: int | float | None = None,
+        task_name: str | None = None,
+        epoch: int | float | None = None,
+        epochs: int | float | None = None,
+        optimizer: torch.optim.Optimizer | None = None,
+        lr: float | None = None,
+        phase: str | None = None,
+        step: int | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {}
+        for key, value in self._scalar_train_metrics(metrics).items():
+            metric_key = key if key.startswith("train/") else f"train/{key}"
+            payload[metric_key] = value
+        if task is not None:
+            payload["train/task_index"] = float(getattr(task, "task_id", 0))
+            if task_name is None:
+                task_name = getattr(task, "name", None)
+        elif task_index is not None:
+            payload["train/task_index"] = float(task_index)
+        if epoch is not None:
+            payload["train/epoch"] = float(epoch)
+        if optimizer is not None and optimizer.param_groups:
+            payload["train/lr"] = float(optimizer.param_groups[0].get("lr", 0.0))
+        if lr is not None:
+            payload["train/lr"] = float(lr)
+        if not payload:
+            return
+        self._print_train_metrics(payload, task=task, task_name=task_name, phase=phase, epochs=epochs)
+        self.log_metrics(payload, step=step)
+
+    def _print_train_metrics(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        task: TaskSpec | Any | None,
+        task_name: str | None,
+        phase: str | None,
+        epochs: int | float | None,
+    ) -> None:
+        metrics = {
+            str(key)[len("train/") :]: float(value)
+            for key, value in payload.items()
+            if str(key).startswith("train/") and key not in {"train/task_index", "train/epoch", "train/global_step", "train/lr"}
+        }
+        if not metrics:
+            return
+        task_name = task_name or getattr(task, "name", None)
+        task_index = payload.get("train/task_index", self._active_train_task_index)
+        parts = ["train"]
+        if task_name is not None:
+            parts.append(f"task={task_name}")
+        elif task_index is not None:
+            parts.append(f"task_index={int(float(task_index))}")
+        if phase:
+            parts.append(f"phase={phase}")
+        if "train/epoch" in payload:
+            epoch = int(float(payload["train/epoch"]))
+            if epochs is not None:
+                parts.append(f"epoch={epoch}/{int(float(epochs))}")
+            else:
+                parts.append(f"epoch={epoch}")
+        parts.append(f"step={self.global_step}")
+        if "train/lr" in payload:
+            parts.append(f"lr={float(payload['train/lr']):.6g}")
+        parts.extend(f"{key}={value:.4f}" for key, value in metrics.items())
+        self.logger.info(" ".join(parts))
+
+    def _normalize_train_payload(self, metrics: Mapping[str, Any]) -> dict[str, Any]:
+        payload = dict(metrics)
+        if not any(str(key).startswith("train/") for key in payload):
+            return payload
+        if self._active_train_task_index is not None:
+            payload.setdefault("train/task_index", float(self._active_train_task_index))
+        payload.setdefault("train/epoch", 0.0)
+        payload.setdefault("train/global_step", float(self.global_step))
+        return payload
+
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
         optimizer = optimizer or method.configure_optimizer(self.optimizer_cfg)
+        use_tqdm = bool(self.show_tqdm and tqdm is not None)
         for epoch in range(self.max_epochs):
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            bar = train_loader
+            if use_tqdm:
+                bar = tqdm(
+                    train_loader,
+                    desc=f"Task {task.name} | epoch {epoch + 1}/{self.max_epochs}",
+                    dynamic_ncols=True,
+                    leave=False,
+                    unit="batch",
+                )
+            for batch in bar:
                 batch = move_to_device(batch, self.device)
                 out = method.observe(batch, task)
                 loss = out["loss"]
@@ -90,29 +206,26 @@ class Trainer:
                 optimizer.step()
                 self.advance_step()
                 method.after_optimizer_step(task)
-                for k, v in out.items():
-                    if k == "logits":
-                        continue
-                    if torch.is_tensor(v) and v.ndim == 0:
-                        totals[k] = totals.get(k, 0.0) + float(v.detach().cpu())
+                for k, v in method.train_metrics(out).items():
+                    totals[k] = totals.get(k, 0.0) + float(v)
                 n += 1
+
+                if self.train_log_interval > 0 and n % self.train_log_interval == 0:
+                    metrics = {k: v / max(n, 1) for k, v in totals.items()}
+                    self.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=self.max_epochs, optimizer=optimizer)
+                    if use_tqdm and "loss" in metrics:
+                        bar.set_postfix(loss=f"{metrics['loss']:.4f}", step=self.global_step, refresh=False)
+
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                msg = ", ".join(f"{k}={v:.4f}" for k, v in metrics.items())
-                self.logger.info("task=%s epoch=%d/%d %s", task.name, epoch + 1, self.max_epochs, msg)
-                self.log_metrics(
-                    {
-                        **{f"train/{k}": v for k, v in metrics.items()},
-                        "train/task_index": float(getattr(task, "task_id", 0)),
-                        "train/epoch": epoch + 1,
-                    }
-                )
+                self.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=self.max_epochs, optimizer=optimizer)
 
     def advance_step(self, n: int = 1) -> None:
         self.global_step += int(n)
 
     def log_metrics(self, metrics: Mapping[str, Any], step: int | None = None) -> None:
-        self.experiment.log(metrics, step=self.global_step if step is None else step)
+        payload = self._normalize_train_payload(metrics)
+        self.experiment.log(payload, step=self.global_step if step is None else step)
 
     @torch.no_grad()
     def evaluate_loader(self, loader) -> dict[str, float | int]:
@@ -148,6 +261,7 @@ class Trainer:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
             for i, task in enumerate(self.scenario.tasks):
                 self.logger.info("=== Task %d/%d: %s train=%d test=%d ===", i + 1, len(self.scenario.tasks), task.name, task.num_train, task.num_test)
+                self._active_train_task_index = float(getattr(task, "task_id", i))
                 train_loader = self.dataloader(i, "train", shuffle=True)
                 val_loader = self.dataloader(i, "val", shuffle=False) if task.num_val > 0 else None
                 self.method.before_task(task, train_loader)
@@ -201,6 +315,7 @@ class Trainer:
                 self._log_eval_table(eval_rows, step=i)
                 self.log_metrics(eval_payload, step=i)
                 self._save_intermediate(i)
+                self._active_train_task_index = None
             summary = self._write_outputs()
             self.log_metrics(
                 {

@@ -257,20 +257,14 @@ class LoRanPACMethod(FrozenFeatureMethod):
         if was_training:
             self.train()
         dim = self.projector.out_dim if self.use_RE else int(self.detector.feature_dim)
-        trainer.logger.info(
-            "task=%s loranpac_rank=%d loranpac_samples=%d loranpac_dim=%d",
-            task.name,
-            self.solver.s.numel(),
-            task_samples,
-            dim,
-        )
-        trainer.log_metrics(
+        trainer.log_train_metrics(
             {
-                "train/loranpac_rank": float(self.solver.s.numel()),
-                "train/loranpac_samples": float(task_samples),
-                "train/loranpac_dim": float(dim),
-                "train/task_index": float(_task_id(task)),
-            }
+                "loranpac_rank": float(self.solver.s.numel()),
+                "loranpac_samples": float(task_samples),
+                "loranpac_dim": float(dim),
+            },
+            task=task,
+            phase="solver",
         )
         return True
 

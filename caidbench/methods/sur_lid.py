@@ -486,16 +486,14 @@ class SURLIDMethod(ContinualMethod):
                 optimizer.step()
                 aligned = self._align_heads() if epoch > self.align_epoch else None
                 trainer.advance_step()
-                for key, value in out.items():
-                    if torch.is_tensor(value) and value.ndim == 0:
-                        totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
+                for key, value in self.train_metrics(out).items():
+                    totals[key] = totals.get(key, 0.0) + float(value)
                 if aligned is not None:
                     totals["head_alignment"] = totals.get("head_alignment", 0.0) + float(aligned.detach().cpu())
                 n += 1
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                trainer.logger.info("task=%s epoch=%d/%d %s", task.name, epoch, trainer.max_epochs, ", ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-                trainer.log_metrics({**{f"train/{k}": v for k, v in metrics.items()}, "train/task_index": float(getattr(task, "task_id", 0)), "train/epoch": epoch})
+                trainer.log_train_metrics(metrics, task=task, epoch=epoch, epochs=trainer.max_epochs, optimizer=optimizer)
             if scheduler is not None:
                 scheduler.step()
         return True

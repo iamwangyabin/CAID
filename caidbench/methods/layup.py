@@ -501,23 +501,16 @@ class LayUPMethod(FrozenFeatureMethod):
             scheduler.step()
             val_acc = self._evaluate_fsa_head(head, eval_loader)
             train_acc = float(total_correct / max(total, 1))
-            trainer.logger.info(
-                "task=%s epoch=%d/%d layup_fsa_loss=%.4f layup_fsa_acc=%.4f layup_fsa_val_acc=%.4f",
-                task.name,
-                epoch + 1,
-                max(self.finetune_epochs, 1),
-                total_loss / max(batches, 1),
-                train_acc,
-                val_acc,
-            )
-            trainer.log_metrics(
+            trainer.log_train_metrics(
                 {
-                    "train/layup_fsa_loss": total_loss / max(batches, 1),
-                    "train/layup_fsa_acc": train_acc,
-                    "train/layup_fsa_val_acc": val_acc,
-                    "train/task_index": float(_task_id(task)),
-                    "train/epoch": epoch + 1,
-                }
+                    "layup_fsa_loss": total_loss / max(batches, 1),
+                    "layup_fsa_acc": train_acc,
+                    "layup_fsa_val_acc": val_acc,
+                },
+                task=task,
+                epoch=epoch + 1,
+                epochs=max(self.finetune_epochs, 1),
+                optimizer=optimizer,
             )
             if val_acc > best_acc:
                 best_acc = val_acc
@@ -544,14 +537,14 @@ class LayUPMethod(FrozenFeatureMethod):
         ridge = self.ridge_head.select_ridge_stratified_accuracy(x, y, self.ridge_candidates, n_splits=self.ridge_splits)
         self.ridge_head.update(x, y)
         self.ridge_head.solve(ridge)
-        trainer.logger.info("task=%s layup_ridge=%.3g layup_samples=%d layup_dim=%d", task.name, ridge, y.numel(), x.shape[1])
-        trainer.log_metrics(
+        trainer.log_train_metrics(
             {
-                "train/layup_ridge": ridge,
-                "train/layup_samples": float(y.numel()),
-                "train/layup_dim": float(x.shape[1]),
-                "train/task_index": float(_task_id(task)),
-            }
+                "layup_ridge": ridge,
+                "layup_samples": float(y.numel()),
+                "layup_dim": float(x.shape[1]),
+            },
+            task=task,
+            phase="ridge",
         )
         return True
 

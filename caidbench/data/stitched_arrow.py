@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import io
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
 import torch
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from torch.utils.data import Dataset
 
 from .hub import resolve_data_path
@@ -16,6 +17,10 @@ from .transforms import build_transform
 
 
 _DEFAULT_SPLIT_FILES = {"train", "val", "test"}
+
+
+class _CorruptImageError(RuntimeError):
+    pass
 
 
 def _require_pyarrow():
@@ -80,12 +85,16 @@ class StitchedArrowImageDataset(Dataset):
         transform_cfg: dict[str, Any] | None = None,
         task_id: int | None = None,
         task_name: str | None = None,
+        skip_corrupt: bool = False,
+        max_corrupt_retries: int = 16,
     ) -> None:
         self.loaded = loaded
         self.indices = [int(i) for i in indices]
         self.transform = build_transform(transform_cfg)
         self.task_id = task_id
         self.task_name = task_name
+        self.skip_corrupt = bool(skip_corrupt)
+        self.max_corrupt_retries = max(int(max_corrupt_retries), 1)
         self._reader_cache: dict[int, tuple[Any, Any]] = {}
 
     def __len__(self) -> int:
@@ -123,11 +132,17 @@ class StitchedArrowImageDataset(Dataset):
         if isinstance(value, dict):
             value = value.get("bytes")
         if isinstance(value, str):
-            with Image.open(value) as img:
-                x = self.transform(img)
+            try:
+                with Image.open(value) as img:
+                    x = self.transform(img)
+            except (OSError, UnidentifiedImageError) as e:
+                raise _CorruptImageError(str(e)) from e
         elif isinstance(value, (bytes, bytearray, memoryview)):
-            with Image.open(io.BytesIO(bytes(value))) as img:
-                x = self.transform(img)
+            try:
+                with Image.open(io.BytesIO(bytes(value))) as img:
+                    x = self.transform(img)
+            except (OSError, UnidentifiedImageError) as e:
+                raise _CorruptImageError(str(e)) from e
         else:
             raise ValueError(f"Unsupported image payload type in stitched_arrow: {type(value)!r}")
         actual = {
@@ -139,18 +154,11 @@ class StitchedArrowImageDataset(Dataset):
         }
         return x, actual
 
-    def __getitem__(self, idx: int) -> dict[str, Any]:
-        meta_pos = self.indices[idx]
-        meta = self.loaded.metadata.iloc[meta_pos].to_dict()
-        file_id = int(meta["_file_id"])
-        batch_index = int(meta["_batch_index"])
-        batch_row = int(meta["_batch_row"])
-        tid = int(self.task_id if self.task_id is not None else meta.get("task_id", -1))
-        x, actual = self._load_row(file_id, batch_index, batch_row)
+    def _to_sample(self, idx: int, meta: Mapping[str, Any], x: torch.Tensor, actual: dict[str, Any], tid: int) -> dict[str, Any]:
         label = int(actual["label"])
         generator = str(actual["generator"] or meta.get("generator", "unknown"))
         dataset = str(actual["dataset"] or meta.get("dataset", "unknown"))
-        source_path = str(actual["path"] or meta.get("path", meta_pos))
+        source_path = str(actual["path"] or meta.get("path", idx))
         split = str(actual["split"] or meta.get("split", "unknown"))
         sample = {
             "x": x,
@@ -176,6 +184,40 @@ class StitchedArrowImageDataset(Dataset):
                 sample[k] = v
         return sample
 
+    def _load_sample(self, meta_pos: int) -> dict[str, Any]:
+        meta = self.loaded.metadata.iloc[meta_pos].to_dict()
+        file_id = int(meta["_file_id"])
+        batch_index = int(meta["_batch_index"])
+        batch_row = int(meta["_batch_row"])
+        x, actual = self._load_row(file_id, batch_index, batch_row)
+        tid = int(self.task_id if self.task_id is not None else meta.get("task_id", -1))
+        return self._to_sample(meta_pos, meta, x, actual, tid)
+
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        dataset_len = len(self.indices)
+        if dataset_len == 0:
+            raise IndexError("Cannot fetch item from an empty StitchedArrowImageDataset")
+        if idx < 0:
+            idx += dataset_len
+        if idx < 0 or idx >= dataset_len:
+            raise IndexError(idx)
+
+        retries = min(self.max_corrupt_retries, dataset_len)
+        for step in range(retries):
+            sample_idx = (idx + step) % dataset_len
+            meta_pos = self.indices[sample_idx]
+            try:
+                return self._load_sample(meta_pos)
+            except _CorruptImageError as e:
+                if not self.skip_corrupt or step == retries - 1:
+                    raise
+                warnings.warn(
+                    f"Skipping corrupted sample idx={sample_idx} (source_path={meta_pos}): {e.__class__.__name__}: {e}"
+                )
+                continue
+
+        raise RuntimeError(f"Failed to load a valid sample after {retries} retries from idx={idx}")
+
 
 class StitchedArrowDataSource:
     """Data source for directories shaped as `<generator>/<split>.arrow`.
@@ -184,9 +226,11 @@ class StitchedArrowDataSource:
     `image`, `label`, `generator_name`, `source_dataset`, `source_path`, `split`.
     """
 
-    def __init__(self, loaded: LoadedStitchedArrow) -> None:
+    def __init__(self, loaded: LoadedStitchedArrow, skip_corrupt: bool = False, max_corrupt_retries: int = 16) -> None:
         self.loaded = loaded
         self.metadata = loaded.metadata
+        self.skip_corrupt = bool(skip_corrupt)
+        self.max_corrupt_retries = max(int(max_corrupt_retries), 1)
         self._split_task_indices: dict[tuple[str, str], list[int]] = {
             (str(task_hint), str(split)): [int(i) for i in group.index.tolist()]
             for (task_hint, split), group in self.metadata.groupby(["task_hint", "split"], sort=False)
@@ -212,6 +256,8 @@ class StitchedArrowDataSource:
         domain_from = str(cfg.get("domain_from", "dir_name"))
         recursive = bool(cfg.get("recursive", False))
         require_splits = [str(x) for x in cfg.get("require_splits", [])]
+        skip_corrupt = bool(cfg.get("skip_corrupt", False))
+        max_corrupt_retries = int(cfg.get("max_corrupt_retries", 16))
 
         files = cls._discover_files(root, recursive=recursive, require_splits=require_splits)
         if not files:
@@ -236,7 +282,7 @@ class StitchedArrowDataSource:
             source_path_column=source_path_column,
             split_column=split_column,
         )
-        return cls(loaded)
+        return cls(loaded, skip_corrupt=skip_corrupt, max_corrupt_retries=max_corrupt_retries)
 
     @staticmethod
     def _discover_files(root: Path, recursive: bool = False, require_splits: list[str] | None = None) -> list[StitchedArrowFile]:
@@ -328,7 +374,15 @@ class StitchedArrowDataSource:
         task_id: int | None = None,
         task_name: str | None = None,
     ) -> StitchedArrowImageDataset:
-        return StitchedArrowImageDataset(self.loaded, indices=row_indices, transform_cfg=transform_cfg, task_id=task_id, task_name=task_name)
+        return StitchedArrowImageDataset(
+            self.loaded,
+            indices=row_indices,
+            transform_cfg=transform_cfg,
+            task_id=task_id,
+            task_name=task_name,
+            skip_corrupt=self.skip_corrupt,
+            max_corrupt_retries=self.max_corrupt_retries,
+        )
 
     def select_indices(self, spec: Mapping[str, Any] | None) -> list[int] | None:
         """Fast path for simple stitched generator/split protocol filters.

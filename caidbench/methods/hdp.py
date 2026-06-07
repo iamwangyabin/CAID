@@ -282,24 +282,14 @@ class HDPMethod(ContinualMethod):
                 optimizer.step()
                 trainer.advance_step()
                 self.after_optimizer_step(task)
-                for k, v in out.items():
-                    if torch.is_tensor(v) and v.ndim == 0:
-                        totals[k] = totals.get(k, 0.0) + float(v.detach().cpu())
+                for k, v in self.train_metrics(out).items():
+                    totals[k] = totals.get(k, 0.0) + float(v)
                 n += 1
             if scheduler is not None:
                 scheduler.step()
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                msg = ", ".join(f"{k}={v:.4f}" for k, v in metrics.items())
-                trainer.logger.info("task=%s epoch=%d/%d %s", task.name, epoch + 1, trainer.max_epochs, msg)
-                trainer.log_metrics(
-                    {
-                        **{f"train/{k}": v for k, v in metrics.items()},
-                        "train/task_index": float(getattr(task, "task_id", 0)),
-                        "train/epoch": epoch + 1,
-                        "train/lr": float(optimizer.param_groups[0]["lr"]),
-                    }
-                )
+                trainer.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=trainer.max_epochs, optimizer=optimizer)
         return True
 
     def after_optimizer_step(self, task: Any | None = None) -> None:

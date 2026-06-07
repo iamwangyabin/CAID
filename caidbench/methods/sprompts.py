@@ -437,27 +437,12 @@ class SPromptsMethod(ContinualMethod):
                     torch.nn.utils.clip_grad_norm_(self.parameters(), trainer.grad_clip)
                 optimizer.step()
                 trainer.advance_step()
-                for key, value in out.items():
-                    if torch.is_tensor(value) and value.ndim == 0:
-                        totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
+                for key, value in self.train_metrics(out).items():
+                    totals[key] = totals.get(key, 0.0) + float(value)
                 n += 1
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                trainer.logger.info(
-                    "task=%s epoch=%d/%d %s",
-                    task.name,
-                    epoch + 1,
-                    epochs,
-                    ", ".join(f"{k}={v:.4f}" for k, v in metrics.items()),
-                )
-                trainer.log_metrics(
-                    {
-                        **{f"train/{k}": v for k, v in metrics.items()},
-                        "train/task_index": float(getattr(task, "task_id", 0)),
-                        "train/epoch": epoch + 1,
-                        "train/lr": epoch_lr,
-                    }
-                )
+                trainer.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=epochs, lr=epoch_lr)
             if scheduler is not None:
                 scheduler.step()
         return True

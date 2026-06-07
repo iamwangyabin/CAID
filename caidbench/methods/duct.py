@@ -213,31 +213,14 @@ class DUCTMethod(ContinualMethod):
                     torch.nn.utils.clip_grad_norm_(self.parameters(), trainer.grad_clip)
                 optimizer.step()
                 trainer.advance_step()
-                for key, value in out.items():
-                    if key == "logits":
-                        continue
-                    if torch.is_tensor(value) and value.ndim == 0:
-                        totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
+                for key, value in self.train_metrics(out).items():
+                    totals[key] = totals.get(key, 0.0) + float(value)
                 n += 1
             if scheduler is not None:
                 scheduler.step()
             if totals:
                 metrics = {key: value / max(n, 1) for key, value in totals.items()}
-                trainer.logger.info(
-                    "task=%s epoch=%d/%d %s",
-                    task.name,
-                    epoch + 1,
-                    trainer.max_epochs,
-                    ", ".join(f"{key}={value:.4f}" for key, value in metrics.items()),
-                )
-                trainer.log_metrics(
-                    {
-                        **{f"train/{key}": value for key, value in metrics.items()},
-                        "train/task_index": float(_task_id(task)),
-                        "train/epoch": epoch + 1,
-                        "train/lr": epoch_lr,
-                    }
-                )
+                trainer.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=trainer.max_epochs, lr=epoch_lr)
         self._merge_backbone()
         self._retrain_head(trainer, train_loader)
         self._transport_classifier()
@@ -264,7 +247,7 @@ class DUCTMethod(ContinualMethod):
         head.sigma.requires_grad_(True)
         base_lr = float(self.lrate if self.lrate is not None else trainer.optimizer_cfg.get("lr", self.lr_re))
         retrain_lr = base_lr if self.use_official_retrain_lr else self.lr_re
-        trainer.logger.info("DUCT retrain head epochs=%d lr=%.6g", self.retrain_epochs, retrain_lr)
+        trainer.log_train_metrics({"duct_retrain_epochs": self.retrain_epochs, "duct_retrain_lr": retrain_lr}, phase="duct_retrain")
         optimizer = torch.optim.SGD([head.weight, head.sigma], lr=retrain_lr, momentum=0.9, weight_decay=self.weight_decay)
         self.train()
         active = self._current_slice()

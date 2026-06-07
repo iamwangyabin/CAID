@@ -100,25 +100,14 @@ def _run_minibatch_loop(
             optimizer.step()
             trainer.advance_step()
             method.after_optimizer_step(task)
-            for key, value in out.items():
-                if key == "logits":
-                    continue
-                if torch.is_tensor(value) and value.ndim == 0:
-                    totals[key] = totals.get(key, 0.0) + float(value.detach().cpu())
+            for key, value in method.train_metrics(out).items():
+                totals[key] = totals.get(key, 0.0) + float(value)
             n += 1
         if scheduler is not None:
             scheduler.step()
         if totals:
             metrics = {key: value / max(n, 1) for key, value in totals.items()}
-            msg = ", ".join(f"{key}={value:.4f}" for key, value in metrics.items())
-            trainer.logger.info("task=%s epoch=%d/%d %s", task.name, epoch + 1, epochs, msg)
-            trainer.log_metrics(
-                {
-                    **{f"train/{key}": value for key, value in metrics.items()},
-                    "train/task_index": float(_task_id(task)),
-                    "train/epoch": epoch + 1,
-                }
-            )
+            trainer.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=epochs, optimizer=optimizer)
 
 
 class FrozenFeatureMethod(ContinualMethod):

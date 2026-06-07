@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 import copy
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import torch
 from torch import nn
@@ -126,6 +126,19 @@ class ContinualMethod(nn.Module, ABC):
         out = self.predict(batch)
         loss = self.classification_loss(out, batch["y"])
         return {"loss": loss, "ce": loss.detach(), "logits": out["logits"].detach()}
+
+    def train_metrics(self, output: Mapping[str, Any]) -> dict[str, float]:
+        metrics: dict[str, float] = {}
+        for key, value in output.items():
+            if key == "logits":
+                continue
+            if torch.is_tensor(value):
+                if value.ndim != 0:
+                    continue
+                value = value.detach().cpu().item()
+            if isinstance(value, (int, float)):
+                metrics[str(key)] = float(value)
+        return metrics
 
     def transform_gradients(self, task: Any | None = None) -> None:
         return None

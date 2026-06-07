@@ -449,23 +449,16 @@ class RanPACMethod(FrozenFeatureMethod):
             tune_acc = self._adapter_accuracy(eval_loader)
             train_acc = float(correct / max(total, 1))
             avg_loss = total_loss / max(batches, 1)
-            trainer.logger.info(
-                "task=%s epoch=%d/%d ranpac_tune_loss=%.4f ranpac_tune_acc=%.4f ranpac_tune_eval_acc=%.4f",
-                task.name,
-                epoch + 1,
-                self.tuned_epoch,
-                avg_loss,
-                train_acc,
-                tune_acc,
-            )
-            trainer.log_metrics(
+            trainer.log_train_metrics(
                 {
-                    "train/ranpac_tune_loss": avg_loss,
-                    "train/ranpac_tune_acc": train_acc,
-                    "train/ranpac_tune_eval_acc": tune_acc,
-                    "train/task_index": float(_task_id(task)),
-                    "train/epoch": epoch + 1,
-                }
+                    "ranpac_tune_loss": avg_loss,
+                    "ranpac_tune_acc": train_acc,
+                    "ranpac_tune_eval_acc": tune_acc,
+                },
+                task=task,
+                epoch=epoch + 1,
+                epochs=self.tuned_epoch,
+                optimizer=optimizer,
             )
         freeze_module(self.detector.backbone)
         freeze_module(self.detector.head)
@@ -505,14 +498,14 @@ class RanPACMethod(FrozenFeatureMethod):
             )
         self.ridge_head.update(h, labels)
         self.ridge_head.solve(ridge)
-        trainer.logger.info("task=%s ranpac_ridge=%.3g ranpac_samples=%d ranpac_dim=%d", task.name, ridge, labels.numel(), h.shape[1])
-        trainer.log_metrics(
+        trainer.log_train_metrics(
             {
-                "train/ranpac_ridge": ridge,
-                "train/ranpac_samples": float(labels.numel()),
-                "train/ranpac_dim": float(h.shape[1]),
-                "train/task_index": float(_task_id(task)),
-            }
+                "ranpac_ridge": ridge,
+                "ranpac_samples": float(labels.numel()),
+                "ranpac_dim": float(h.shape[1]),
+            },
+            task=task,
+            phase="ridge",
         )
         return True
 

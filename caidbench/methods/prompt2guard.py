@@ -704,21 +704,16 @@ class Prompt2GuardMethod(ContinualMethod):
                 pred = out["logits"].argmax(dim=1)
                 correct += int((pred == y).sum().detach().cpu())
                 total += int(y.numel())
-            train_metrics = {
-                "train/prompt2guard_loss": total_loss / max(len(train_loader), 1),
-                "train/prompt2guard_acc": correct / max(total, 1),
-                "train/task_index": float(getattr(task, "task_id", 0)),
-                "train/epoch": epoch + 1,
-            }
-            trainer.logger.info(
-                "task=%s epoch=%d/%d prompt2guard_loss=%.4f prompt2guard_acc=%.4f",
-                task.name,
-                epoch + 1,
-                epochs,
-                train_metrics["train/prompt2guard_loss"],
-                train_metrics["train/prompt2guard_acc"],
+            trainer.log_train_metrics(
+                {
+                    "prompt2guard_loss": total_loss / max(len(train_loader), 1),
+                    "prompt2guard_acc": correct / max(total, 1),
+                },
+                task=task,
+                epoch=epoch + 1,
+                epochs=epochs,
+                optimizer=optimizer,
             )
-            trainer.log_metrics(train_metrics)
         return True
 
     def _cluster_features(self, features: torch.Tensor, n_clusters: int) -> torch.Tensor:

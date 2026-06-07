@@ -46,6 +46,8 @@ train:
   epochs: 1
   batch_size: 32
   num_workers: 4
+  tqdm: true
+  log_interval: 50
   optimizer:
     type: adamw
     lr: 1.0e-4

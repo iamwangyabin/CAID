@@ -6,6 +6,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+from .e3_official import MISLNetBackbone
+
 
 class SmallConvBackbone(nn.Module):
     """CPU-safe image backbone for smoke tests and small experiments.
@@ -242,5 +244,12 @@ def build_backbone(cfg: dict[str, Any] | None = None) -> nn.Module:
             hook_module=cfg.get("hook_module"),
             token_pool=str(cfg.get("token_pool", "cls")),
             hidden_layer=int(cfg.get("hidden_layer", -1)),
+        )
+    if kind in {"mislnet", "misl", "e3_mislnet"}:
+        return MISLNetBackbone(
+            patch_size=int(cfg.get("patch_size", 256)),
+            num_filters=int(cfg.get("num_filters", 6)),
+            constrained_conv=bool(cfg.get("constrained_conv", True)),
+            save_features=bool(cfg.get("save_features", False)),
         )
     raise KeyError(f"Unknown backbone type: {kind}")

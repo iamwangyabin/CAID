@@ -1,47 +1,35 @@
 from __future__ import annotations
 
-import torch
 from torch import nn
 
+from .e3_official import OfficialE3FusionNetwork
 
-class ExpertKnowledgeFusionNetwork(nn.Module):
-    """Transformer-based EKFN used by E3.
 
-    Input: [B, num_experts, embed_dim]. The transformer contextualizes expert
-    evidence. Its output gates the original embeddings by elementwise product;
-    gated embeddings are flattened and fed to a two-layer MLP.
-    """
+class ExpertKnowledgeFusionNetwork(OfficialE3FusionNetwork):
+    """Official E3 EKFN wrapper kept under the legacy import path."""
 
     def __init__(
         self,
         embed_dim: int,
-        max_experts: int = 64,
+        max_experts: int | None = None,
         num_classes: int = 2,
-        transformer_layers: int = 2,
-        nhead: int = 4,
-        mlp_hidden: int = 512,
-        dropout: float = 0.0,
-        activation: str = "gelu",
+        transformer_layers: int = 5,
+        nhead: int = 8,
+        mlp_hidden: int | None = None,
+        dropout: float | None = None,
+        activation: str | None = None,
+        num_experts: int | None = None,
     ) -> None:
-        super().__init__()
-        self.embed_dim = int(embed_dim)
-        self.max_experts = int(max_experts)
-        enc_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=nhead, dim_feedforward=max(embed_dim * 4, 128), dropout=dropout, batch_first=True, activation="gelu")
-        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=transformer_layers)
-        self.pos = nn.Parameter(torch.zeros(1, max_experts, embed_dim))
-        act = nn.ReLU(inplace=True) if str(activation).lower() == "relu" else nn.GELU()
-        self.mlp = nn.Sequential(
-            nn.Linear(max_experts * embed_dim, mlp_hidden), act, nn.Dropout(dropout), nn.Linear(mlp_hidden, num_classes)
+        del max_experts, mlp_hidden, dropout, activation
+        super().__init__(
+            expert_n_features=embed_dim,
+            num_experts=int(num_experts or 1),
+            embed_dim=200,
+            depth=int(transformer_layers),
+            num_heads=int(nhead),
+            num_classes=int(num_classes),
         )
 
-    def forward(self, expert_embeddings: torch.Tensor) -> torch.Tensor:
-        b, e, d = expert_embeddings.shape
-        if e > self.max_experts:
-            raise ValueError(f"EKFN max_experts={self.max_experts}, got {e}")
-        x = expert_embeddings + self.pos[:, :e]
-        ctx = self.transformer(x)
-        gated = ctx * expert_embeddings
-        if e < self.max_experts:
-            pad = gated.new_zeros(b, self.max_experts - e, d)
-            gated = torch.cat([gated, pad], dim=1)
-        return self.mlp(gated.reshape(b, -1))
+    @property
+    def trainable_head(self) -> nn.Module:
+        return self.classifier_head

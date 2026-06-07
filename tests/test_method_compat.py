@@ -33,6 +33,26 @@ def test_hsic_nuisance_ids_accept_tensor_metadata_and_task_fallback():
     assert fallback.tolist() == [5, 5]
 
 
+def test_hsic_official_mode_uses_online_bottleneck_features():
+    method = HSICBottleneckMethod(
+        detector_cfg=_detector_cfg(out_dim=6),
+        objective="official",
+        bottleneck_dim=3,
+        memory_size=0,
+        lambda_x=1.0,
+        lambda_y=1.0,
+    )
+    batch = {"x": torch.randn(4, 3, 16, 16), "y": torch.tensor([0, 1, 0, 1])}
+
+    out = method.predict(batch)
+    log = method.observe(batch)
+
+    assert out["input_features"].shape == (4, 6)
+    assert out["features"].shape == (4, 3)
+    assert out["logits"].shape == (4, 1)
+    assert torch.isfinite(log["loss"])
+
+
 def test_ca_adapter_domain_ids_accept_tensor_metadata():
     method = ContentAgnosticAdapterCAIL(detector_cfg=_detector_cfg(), memory_size=0)
     ids = method._domain_ids({"generator": torch.tensor([4, 7])}, torch.device("cpu"))

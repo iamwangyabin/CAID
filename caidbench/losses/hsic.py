@@ -67,3 +67,26 @@ def hsic_bottleneck_loss(
                 n = F.one_hot(n.long(), num_classes=int(n.max().item()) + 1).float()
             loss = loss + lambda_nuisance * hsic(features, n.float(), y_kernel="linear")
     return loss
+
+
+def official_hsic_bottleneck_loss(
+    bottleneck_features: torch.Tensor,
+    input_features: torch.Tensor,
+    labels: torch.Tensor,
+    lambda_x: float = 500.0,
+    lambda_y: float = 300.0,
+) -> torch.Tensor:
+    """Official-style Dual-HSIC objective for online features.
+
+    CAIDBench computes ``input_features`` from the current image batch and uses
+    them immediately; no feature file is written or read. The objective matches
+    the released formulation: ``lambda_x * HSIC(z, x) - lambda_y * HSIC(z, y)``.
+    """
+    y = labels.float().reshape(labels.shape[0], -1)
+    if y.shape[1] != 1:
+        y = labels.float().view(-1, 1)
+    return float(lambda_x) * hsic(bottleneck_features, input_features, y_kernel="rbf") - float(lambda_y) * hsic(
+        bottleneck_features,
+        y,
+        y_kernel="rbf",
+    )

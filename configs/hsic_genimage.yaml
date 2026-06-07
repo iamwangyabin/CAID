@@ -1,0 +1,19 @@
+_base_: hsic_bottleneck.yaml
+output_dir: outputs/hsic_genimage
+scenario:
+  data:
+    backend: hf_arrow
+    image_column: image
+    remote:
+      platform: huggingface
+      repo_id: nebula/GenImage-arrow
+      local_dir: data/datasets/GenImage.arrow
+      path_in_repo: .
+      max_workers: 16
+  protocol: protocols/examples/genimage_arrow.yaml
+method:
+  # Official HSIC uses SDv4 defaults for the diffusion base setting.
+  lambda_x: 900.0
+  lambda_y: 700.0
+  buffer_lambda_x: 900.0
+  buffer_lambda_y: 700.0

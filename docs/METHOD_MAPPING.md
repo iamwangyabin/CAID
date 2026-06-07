@@ -21,8 +21,9 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 ## HSIC Bottleneck + HGR
 
 - CE for real/fake detection.
-- HSIC dependence with real/fake labels can be rewarded while HSIC dependence with nuisance variables such as generator ID, task ID, or caption alignment is penalized.
-- HGR keeps compact per-class replay memory using a hybrid score: HSIC relevance plus k-center coverage.
+- `objective=official` computes frozen backbone features online, learns the official 64-D bottleneck encoder, and optimizes `lambda_x * HSIC(z, x) - lambda_y * HSIC(z, y)` without storing feature files.
+- The CAIDBench-native objective can still reward real/fake label dependence while penalizing nuisance variables such as generator ID, task ID, or caption alignment.
+- HGR keeps compact per-class replay memory using the official k-center plus HSIC-centrality selection rule in official mode; replay stores sample rows and recomputes features online.
 
 ## SAIDO
 

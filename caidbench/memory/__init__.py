@@ -7,6 +7,7 @@ from .selectors import (
     extract_feature_table,
     hsic_guided_indices,
     kcenter_greedy,
+    official_hgr_indices,
     random_indices,
     sparse_uniform_indices,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "extract_feature_table",
     "hsic_guided_indices",
     "kcenter_greedy",
+    "official_hgr_indices",
     "random_indices",
     "sparse_uniform_indices",
 ]

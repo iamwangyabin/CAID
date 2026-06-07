@@ -1,0 +1,44 @@
+name: genimage_arrow
+# GenImage generator-incremental protocol.
+# GenImage releases commonly expose train/val splits, so val is used as test.
+tasks:
+  - id: sdv4
+    name: SDv4
+    numeric_id: 0
+    filter: {include: {generator: [SDv4, sdv4]}}
+    test: {split: val, include: {generator: [SDv4, sdv4]}}
+  - id: sdv5
+    name: SDv5
+    numeric_id: 1
+    filter: {include: {generator: [SDv5, sdv5]}}
+    test: {split: val, include: {generator: [SDv5, sdv5]}}
+  - id: adm
+    name: ADM
+    numeric_id: 2
+    filter: {include: {generator: [ADM, adm]}}
+    test: {split: val, include: {generator: [ADM, adm]}}
+  - id: glide
+    name: GLIDE
+    numeric_id: 3
+    filter: {include: {generator: [GLIDE, glide]}}
+    test: {split: val, include: {generator: [GLIDE, glide]}}
+  - id: midjourney
+    name: Midjourney
+    numeric_id: 4
+    filter: {include: {generator: [Midjourney, midjourney]}}
+    test: {split: val, include: {generator: [Midjourney, midjourney]}}
+  - id: wukong
+    name: Wukong
+    numeric_id: 5
+    filter: {include: {generator: [Wukong, wukong]}}
+    test: {split: val, include: {generator: [Wukong, wukong]}}
+  - id: vqdm
+    name: VQDM
+    numeric_id: 6
+    filter: {include: {generator: [VQDM, vqdm]}}
+    test: {split: val, include: {generator: [VQDM, vqdm]}}
+  - id: biggan
+    name: BigGAN
+    numeric_id: 7
+    filter: {include: {generator: [BigGAN, biggan]}}
+    test: {split: val, include: {generator: [BigGAN, biggan]}}

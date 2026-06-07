@@ -11,10 +11,15 @@ scenario:
         std: [0.26862954, 0.26130258, 0.27577711]
 method:
   name: hsic_bottleneck
-  hsic_weight: 1.0
-  label_hsic_weight: 1.0
-  nuisance_hsic_weight: 1.0
-  hgr_lambda_kc: 0.5
+  objective: official
+  lambda_x: 900.0
+  lambda_y: 700.0
+  buffer_lambda_x: 900.0
+  buffer_lambda_y: 700.0
+  bottleneck_dim: 64
+  binary_sigmoid: true
+  hgr_alpha: 0.5
+  hgr_keep_frac: 0.01
   memory_size: 1500
   memory_batch_size: 32
   kd_weight: 0.0

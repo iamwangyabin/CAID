@@ -367,6 +367,36 @@ def test_hsic_online_image_smoke(tmp_path):
     assert "average_accuracy" in summary
 
 
+def test_hsic_official_online_image_smoke(tmp_path):
+    data_root = make_image_arrow(tmp_path)
+    cfg = {
+        "seed": 0,
+        "device": "cpu",
+        "output_dir": str(tmp_path / "out_hsic_official_online"),
+        "logging": {"backend": "none"},
+        "scenario": {
+            "data": {"backend": "aid_arrow", "path": str(data_root), "image_column": "image"},
+            "protocol": task_protocol(1),
+            "transform": image_transform(16),
+        },
+        "train": {"epochs": 1, "batch_size": 2, "num_workers": 0, "optimizer": {"type": "sgd", "lr": 1e-4}},
+        "method": {
+            "name": "hsic_bottleneck",
+            "objective": "official",
+            "num_classes": 2,
+            "lambda_x": 1.0,
+            "lambda_y": 1.0,
+            "bottleneck_dim": 4,
+            "hgr_keep_frac": 0.5,
+            "memory_size": 4,
+            "memory_batch_size": 1,
+            "detector_cfg": {"num_classes": 2, "backbone": {"type": "small_conv", "out_dim": 8}},
+        },
+    }
+    summary = Trainer(cfg).run()
+    assert "average_accuracy" in summary
+
+
 @pytest.mark.parametrize(
     ("method_name", "overrides"),
     [

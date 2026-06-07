@@ -203,6 +203,77 @@ def _centered_alignment_scores(features: torch.Tensor, target: torch.Tensor) -> 
     return (kc * lc).sum(dim=1)
 
 
+def _self_hsic_centrality_scores(features: torch.Tensor) -> torch.Tensor:
+    if features.shape[0] < 2:
+        return features.new_zeros(features.shape[0])
+    z = features.float().reshape(features.shape[0], -1)
+    sq = torch.cdist(z, z, p=2).pow(2)
+    vals = sq.detach().flatten()
+    vals = vals[vals > 0]
+    sigma = torch.sqrt(torch.median(vals)).item() if vals.numel() else 1.0
+    sigma = max(float(sigma), 1e-6)
+    k = torch.exp(-sq / (2.0 * sigma * sigma))
+    n = z.shape[0]
+    h = torch.eye(n, dtype=z.dtype, device=z.device) - torch.ones(n, n, dtype=z.dtype, device=z.device) / n
+    kc = h @ k @ h
+    return kc.pow(2).sum(dim=1)
+
+
+def official_hgr_indices(features: torch.Tensor, labels: torch.Tensor, k: int, alpha: float = 0.5) -> list[int]:
+    """Official-equivalent HGR selection with online-computed features.
+
+    The released HGR buffer writer selects exemplars per class using a joint
+    score over k-center coverage and HSIC centrality. This implementation keeps
+    the same selection rule, but returns sample indices so CAIDBench can store
+    image rows and recompute features online during replay.
+    """
+    if features.numel() == 0 or k <= 0:
+        return []
+    z = F.normalize(features.float().reshape(features.shape[0], -1), dim=1)
+    selected: list[int] = []
+    classes = labels.unique(sorted=True).tolist()
+    base = k // max(len(classes), 1)
+    quotas: dict[int, int] = {}
+    remaining = k
+    for c in classes:
+        idx = torch.where(labels == int(c))[0]
+        quotas[int(c)] = min(idx.numel(), base)
+        remaining -= quotas[int(c)]
+    for c in classes:
+        if remaining <= 0:
+            break
+        idx = torch.where(labels == int(c))[0]
+        extra = min(remaining, max(0, idx.numel() - quotas[int(c)]))
+        quotas[int(c)] += extra
+        remaining -= extra
+
+    def _minmax(x: torch.Tensor) -> torch.Tensor:
+        return (x - x.min()) / (x.max() - x.min()).clamp_min(1e-12)
+
+    for c in classes:
+        idx = torch.where(labels == int(c))[0]
+        quota = min(quotas[int(c)], idx.numel())
+        if quota <= 0:
+            continue
+        feats = z[idx]
+        centrality = _minmax(_self_hsic_centrality_scores(feats))
+        centroid = feats.mean(dim=0, keepdim=True)
+        d2_cent = (feats - centroid).pow(2).sum(dim=1)
+        coverage = _minmax(d2_cent)
+        score = float(alpha) * (1.0 - coverage) + (1.0 - float(alpha)) * (1.0 - centrality)
+        class_selected = [int(torch.argmin(score).item())]
+        min_d2 = (feats - feats[class_selected[0]]).pow(2).sum(dim=1)
+        while len(class_selected) < quota:
+            coverage = _minmax(min_d2)
+            score = float(alpha) * (1.0 - coverage) + (1.0 - float(alpha)) * (1.0 - centrality)
+            score[torch.tensor(class_selected, dtype=torch.long, device=score.device)] = float("inf")
+            nxt = int(torch.argmin(score).item())
+            class_selected.append(nxt)
+            min_d2 = torch.minimum(min_d2, (feats - feats[nxt]).pow(2).sum(dim=1))
+        selected.extend(idx[class_selected].tolist())
+    return selected[: min(k, features.shape[0])]
+
+
 def hsic_guided_indices(features: torch.Tensor, labels: torch.Tensor, nuisance: torch.Tensor | None, k: int, lambda_kc: float = 0.5) -> list[int]:
     """HSIC-Guided Replay: label relevance balanced with k-center coverage.
 

@@ -1,5 +1,7 @@
 _base_: ../prompt2guard.yaml
 output_dir: outputs/stitched/prompt2guard
+train:
+  batch_size: 64
 scenario:
   data:
     backend: stitched_arrow

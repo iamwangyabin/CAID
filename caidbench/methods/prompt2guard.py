@@ -689,7 +689,13 @@ class Prompt2GuardMethod(ContinualMethod):
             total_loss = 0.0
             total = 0
             correct = 0
-            for batch in train_loader:
+            if hasattr(train_loader, "iter_with_progress"):
+                bar = train_loader.iter_with_progress(
+                    desc=f"Task {getattr(task, 'name', self.current_task_index)} | epoch {epoch + 1}/{epochs}"
+                )
+            else:
+                bar = train_loader
+            for batch_idx, batch in enumerate(bar, start=1):
                 x = batch["x"].to(self.device)
                 y = batch["y"].long().to(self.device)
                 out = self.network(x, self._object_labels_for_batch(batch))
@@ -704,6 +710,13 @@ class Prompt2GuardMethod(ContinualMethod):
                 pred = out["logits"].argmax(dim=1)
                 correct += int((pred == y).sum().detach().cpu())
                 total += int(y.numel())
+                if hasattr(bar, "set_postfix"):
+                    bar.set_postfix(
+                        loss=f"{total_loss / max(batch_idx, 1):.4f}",
+                        acc=f"{correct / max(total, 1):.4f}",
+                        step=getattr(trainer, "global_step", 0),
+                        refresh=False,
+                    )
             trainer.log_train_metrics(
                 {
                     "prompt2guard_loss": total_loss / max(len(train_loader), 1),

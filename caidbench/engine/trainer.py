@@ -26,6 +26,48 @@ from ..utils.seed import seed_everything
 from ..utils.tensor import move_to_device
 
 
+class _ProgressDataLoader:
+    def __init__(
+        self,
+        loader,
+        *,
+        enabled: bool,
+        desc: str,
+        leave: bool = False,
+        unit: str = "batch",
+    ) -> None:
+        self._loader = loader
+        self._enabled = bool(enabled and tqdm is not None)
+        self._desc = desc
+        self._leave = leave
+        self._unit = unit
+        self._passes = 0
+
+    def __len__(self) -> int:
+        return len(self._loader)
+
+    def __iter__(self):
+        self._passes += 1
+        desc = self._desc if self._passes == 1 else f"{self._desc} | pass {self._passes}"
+        return self.iter_with_progress(desc=desc)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._loader, name)
+
+    def iter_with_progress(self, *, desc: str | None = None, leave: bool | None = None, unit: str | None = None):
+        iterator = iter(self._loader)
+        if not self._enabled:
+            return iterator
+        return tqdm(
+            iterator,
+            total=len(self._loader),
+            desc=desc or self._desc,
+            dynamic_ncols=True,
+            leave=self._leave if leave is None else bool(leave),
+            unit=unit or self._unit,
+        )
+
+
 class Trainer:
     """Unified continual-detection trainer.
 
@@ -80,7 +122,15 @@ class Trainer:
     ):
         ds = self.scenario.task_dataset(split, task_index, transform_split=transform_split)
         effective_drop_last = self.drop_last and split == "train" if drop_last is None else bool(drop_last)
-        return build_dataloader(ds, batch_size=self.batch_size, shuffle=shuffle, num_workers=self.num_workers, drop_last=effective_drop_last)
+        loader = build_dataloader(ds, batch_size=self.batch_size, shuffle=shuffle, num_workers=self.num_workers, drop_last=effective_drop_last)
+        task = self.scenario.tasks[task_index]
+        return _ProgressDataLoader(
+            loader,
+            enabled=self.show_tqdm,
+            desc=f"Task {task.name} | {split}",
+            leave=False,
+            unit="batch",
+        )
 
     @staticmethod
     def _scalar_train_metrics(metrics: Mapping[str, Any]) -> dict[str, float]:
@@ -185,8 +235,9 @@ class Trainer:
         for epoch in range(self.max_epochs):
             totals: dict[str, float] = {}
             n = 0
-            bar = train_loader
-            if use_tqdm:
+            if hasattr(train_loader, "iter_with_progress"):
+                bar = train_loader.iter_with_progress(desc=f"Task {task.name} | epoch {epoch + 1}/{self.max_epochs}")
+            elif use_tqdm:
                 bar = tqdm(
                     train_loader,
                     desc=f"Task {task.name} | epoch {epoch + 1}/{self.max_epochs}",
@@ -194,6 +245,8 @@ class Trainer:
                     leave=False,
                     unit="batch",
                 )
+            else:
+                bar = train_loader
             for batch in bar:
                 batch = move_to_device(batch, self.device)
                 out = method.observe(batch, task)
@@ -213,7 +266,7 @@ class Trainer:
                 if self.train_log_interval > 0 and n % self.train_log_interval == 0:
                     metrics = {k: v / max(n, 1) for k, v in totals.items()}
                     self.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=self.max_epochs, optimizer=optimizer)
-                    if use_tqdm and "loss" in metrics:
+                    if hasattr(bar, "set_postfix") and "loss" in metrics:
                         bar.set_postfix(loss=f"{metrics['loss']:.4f}", step=self.global_step, refresh=False)
 
             if totals:

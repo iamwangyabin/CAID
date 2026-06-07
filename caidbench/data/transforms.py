@@ -124,6 +124,25 @@ class Resize:
         return img.resize((target_w, target_h), self.interpolation)
 
 
+class ResizeIfSmaller:
+    def __init__(self, size: int | Sequence[int], interpolation: Any | None = None) -> None:
+        self.size = _size2(size)
+        self.interpolation = _resampling(interpolation)
+
+    def __call__(self, img: Image.Image) -> Image.Image:
+        img = _as_rgb(img)
+        target_h, target_w = self.size
+        width, height = img.size
+        if width >= target_w and height >= target_h:
+            return img
+        scale = max(target_w / max(width, 1), target_h / max(height, 1))
+        out_w = int(round(width * scale))
+        out_h = int(round(height * scale))
+        out_w = max(out_w, target_w)
+        out_h = max(out_h, target_h)
+        return img.resize((out_w, out_h), self.interpolation)
+
+
 class SquareResize:
     def __init__(self, size: int | Sequence[int], interpolation: Any | None = None) -> None:
         self.size = _size2(size)
@@ -373,6 +392,7 @@ def _adjust_hue(img: Image.Image, hue_factor: float) -> Image.Image:
 
 _TARGETS: dict[str, type] = {
     "resize": Resize,
+    "resizeifsmaller": ResizeIfSmaller,
     "squareresize": SquareResize,
     "centercrop": CenterCrop,
     "randomcrop": RandomCrop,

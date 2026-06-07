@@ -9,7 +9,7 @@ import torch
 from PIL import Image
 
 from caidbench.data.scenario import ContinualScenario
-from caidbench.data.transforms import build_transform
+from caidbench.data.transforms import ResizeIfSmaller, build_transform
 
 
 def write_aid_image_dataset(root: Path, rows: list[dict]) -> Path:
@@ -95,3 +95,21 @@ def test_scenario_uses_split_specific_transforms(tmp_path: Path) -> None:
 
     assert tuple(train_sample["x"].shape) == (3, 8, 8)
     assert tuple(test_sample["x"].shape) == (3, 12, 12)
+
+
+def test_resize_if_smaller_preserves_aspect_ratio() -> None:
+    transform = ResizeIfSmaller(256)
+    img = Image.fromarray(np.full((200, 100, 3), 128, dtype=np.uint8))
+
+    out = transform(img)
+
+    assert out.size == (256, 512)
+
+
+def test_resize_if_smaller_keeps_large_image_unchanged() -> None:
+    transform = ResizeIfSmaller(256)
+    img = Image.fromarray(np.full((320, 400, 3), 128, dtype=np.uint8))
+
+    out = transform(img)
+
+    assert out.size == img.size

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import importlib
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 import numpy as np
@@ -42,6 +43,71 @@ def _scalar(value: Any) -> int | float | None:
         return None
 
 
+def _slug_part(value: Any) -> str:
+    text = str(value).strip()
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
+    return text.strip("_")
+
+
+def _protocol_dataset_name(protocol: Any) -> str | None:
+    if not protocol:
+        return None
+    stem = Path(str(protocol)).stem
+    lower = stem.lower()
+    if "cddb_hard" in lower:
+        return "cddb_hard"
+    if "cddb" in lower:
+        return "cddb"
+    if "stitched" in lower:
+        return "stitched"
+    for suffix in ("_arrow", "_incremental", "_protocol"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+    return _slug_part(stem) or None
+
+
+def _path_dataset_name(path: Any) -> str | None:
+    if not path:
+        return None
+    name = Path(str(path)).name
+    lower = name.lower()
+    if "cddb_hard" in lower:
+        return "cddb_hard"
+    if "cddb" in lower:
+        return "cddb"
+    if "stitched" in lower:
+        return "stitched"
+    return _slug_part(name) or None
+
+
+def _default_experiment_base_name(cfg: Mapping[str, Any], output_dir: Path, method_name: str) -> str:
+    logging_cfg = cfg.get("logging", {}) or {}
+    method_cfg = cfg.get("method", {}) or {}
+    scenario_cfg = cfg.get("scenario", {}) or {}
+    if not isinstance(logging_cfg, Mapping):
+        logging_cfg = {}
+    if not isinstance(method_cfg, Mapping):
+        method_cfg = {}
+    if not isinstance(scenario_cfg, Mapping):
+        scenario_cfg = {}
+    data_cfg = scenario_cfg.get("data", {}) or {}
+    if not isinstance(data_cfg, Mapping):
+        data_cfg = {}
+
+    dataset = (
+        logging_cfg.get("dataset")
+        or _protocol_dataset_name(scenario_cfg.get("protocol"))
+        or method_cfg.get("dataset")
+        or data_cfg.get("dataset")
+        or data_cfg.get("name")
+        or _path_dataset_name(data_cfg.get("path") or data_cfg.get("root") or data_cfg.get("local_dir"))
+        or output_dir.name
+    )
+    method = _slug_part(method_name) or "method"
+    dataset_part = _slug_part(dataset)
+    return f"{method}-{dataset_part}" if dataset_part else method
+
+
 class NullExperimentLogger:
     def log(self, data: Mapping[str, Any], step: int | None = None) -> None:
         return None
@@ -70,7 +136,7 @@ class SwanLabExperimentLogger:
                 "Install project dependencies or set logging.backend=none to disable experiment logging."
             ) from exc
 
-        base_experiment_name = str(raw.get("experiment_name") or raw.get("name") or f"{method_name}-{output_dir.name}")
+        base_experiment_name = str(raw.get("experiment_name") or raw.get("name") or _default_experiment_base_name(cfg, output_dir, method_name))
         timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")[:-3]
         experiment_name = f"{base_experiment_name}-{timestamp}"
         kwargs: dict[str, Any] = {

@@ -1,0 +1,889 @@
+name: model_timeline_incremental
+# Chronological incremental protocol derived from the pasted model/source draft.
+# Filtering convention:
+#   - dataset: source package name, e.g. CNNDetection, GenImage, OpenFake.
+#   - task_hint: canonical model task id below.
+# Extra keys such as release, train_sources, and task_group are kept for audit.
+tasks:
+  - id: progan
+    name: ProGAN
+    numeric_id: 0
+    release: "2017-10"
+    task_group: image_gan
+    train_sources: [CNNDetection]
+    test_sources: [CNNDetection]
+    filter: {include: {dataset: [CNNDetection], task_hint: progan}}
+    test: {split: test, include: {dataset: [CNNDetection], task_hint: progan}}
+  - id: stargan
+    name: StarGAN
+    numeric_id: 1
+    release: "2017-11"
+    task_group: face_attribute_editing
+    train_sources: [DF40]
+    test_sources: [CNNDetection]
+    filter: {include: {dataset: [DF40], task_hint: stargan}}
+    test: {split: test, include: {dataset: [CNNDetection], task_hint: stargan}}
+  - id: deepfakes
+    name: DeepFakes
+    numeric_id: 2
+    release: "2017-12"
+    task_group: face_swap_video
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: deepfakes}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: deepfakes}}
+  - id: biggan
+    name: BigGAN
+    numeric_id: 3
+    release: "2018-09"
+    task_group: image_gan
+    train_sources: [GenImage]
+    test_sources: [CNNDetection]
+    filter: {include: {dataset: [GenImage], task_hint: biggan}}
+    test: {split: test, include: {dataset: [CNNDetection], task_hint: biggan}}
+  - id: sc_fegan
+    name: SC-FEGAN
+    numeric_id: 4
+    release: "2019-02"
+    task_group: face_local_editing
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: sc_fegan}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: sc_fegan}}
+  - id: pluralistic
+    name: Pluralistic
+    numeric_id: 5
+    release: "2019-03"
+    task_group: inpainting
+    train_sources: [Dolos]
+    test_sources: [Dolos]
+    filter: {include: {dataset: [Dolos], task_hint: pluralistic}}
+    test: {split: test, include: {dataset: [Dolos], task_hint: pluralistic}}
+  - id: atvg_net
+    name: ATVG-Net
+    numeric_id: 6
+    release: "2019-05"
+    task_group: face_reenactment_video
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: atvg_net}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: atvg_net}}
+  - id: maskgan
+    name: MaskGAN
+    numeric_id: 7
+    release: "2019-07"
+    task_group: face_editing
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: maskgan}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: maskgan}}
+  - id: fsgan
+    name: FSGAN
+    numeric_id: 8
+    release: "2019-08"
+    task_group: face_swap_reenactment
+    train_sources: [DF40]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [DF40], task_hint: fsgan}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: fsgan}}
+  - id: fs_vid2vid
+    name: FS_vid2vid
+    numeric_id: 9
+    release: "2019-10"
+    task_group: face_reenactment_video
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: fs_vid2vid}}
+    test: {split: test, include: {dataset: [DF40], task_hint: fs_vid2vid}}
+  - id: faceshifter
+    name: FaceShifter
+    numeric_id: 10
+    release: "2019-12"
+    task_group: face_swap
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: faceshifter}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: faceshifter}}
+  - id: stargan2
+    name: StarGAN2
+    numeric_id: 11
+    release: "2019-12"
+    task_group: face_attribute_editing
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: stargan2}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: stargan2}}
+  - id: stylegan2
+    name: StyleGAN2
+    numeric_id: 12
+    release: "2019-12"
+    task_group: image_gan
+    train_sources: [CNNDetection]
+    test_sources: [DF40, ForgeryNet]
+    filter: {include: {dataset: [CNNDetection], task_hint: stylegan2}}
+    test: {split: test, include: {dataset: [DF40, ForgeryNet], task_hint: stylegan2}}
+  - id: fomm
+    name: FOMM
+    numeric_id: 13
+    release: "2020-02"
+    task_group: motion_transfer
+    train_sources: [DF40]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [DF40], task_hint: fomm}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: fomm}}
+  - id: discofacegan
+    name: DiscoFaceGAN
+    numeric_id: 14
+    release: "2020-04"
+    task_group: face_gan
+    train_sources: [ForgeryNet]
+    test_sources: [ForgeryNet]
+    filter: {include: {dataset: [ForgeryNet], task_hint: discofacegan}}
+    test: {split: test, include: {dataset: [ForgeryNet], task_hint: discofacegan}}
+  - id: wav2lip
+    name: Wav2Lip
+    numeric_id: 15
+    release: "2020-08"
+    task_group: lip_sync_video
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: wav2lip}}
+    test: {split: test, include: {dataset: [DF40], task_hint: wav2lip}}
+  - id: ddim
+    name: DDIM
+    numeric_id: 16
+    release: "2020-10"
+    task_group: image_diffusion
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: ddim}}
+    test: {split: test, include: {dataset: [DF40], task_hint: ddim}}
+  - id: simswap
+    name: SimSwap
+    numeric_id: 17
+    release: "2020-10"
+    task_group: face_swap
+    train_sources: [DF40]
+    test_sources: [AIGIBench]
+    filter: {include: {dataset: [DF40], task_hint: simswap}}
+    test: {split: test, include: {dataset: [AIGIBench], task_hint: simswap}}
+  - id: oneshot
+    name: OneShot
+    numeric_id: 18
+    release: "2020-11"
+    task_group: face_reenactment
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: oneshot}}
+    test: {split: test, include: {dataset: [DF40], task_hint: oneshot}}
+  - id: vqgan
+    name: VQGAN
+    numeric_id: 19
+    release: "2020-12"
+    task_group: image_vq
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: vqgan}}
+    test: {split: test, include: {dataset: [DF40], task_hint: vqgan}}
+  - id: mraa
+    name: MRAA
+    numeric_id: 20
+    release: "2021-04"
+    task_group: animation
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: mraa}}
+    test: {split: test, include: {dataset: [DF40], task_hint: mraa}}
+  - id: adm
+    name: ADM
+    numeric_id: 21
+    release: "2021-05"
+    task_group: image_diffusion
+    train_sources: [GenImage]
+    test_sources: [GenImage]
+    filter: {include: {dataset: [GenImage], task_hint: adm}}
+    test: {split: test, include: {dataset: [GenImage], task_hint: adm}}
+  - id: stylegan3
+    name: StyleGAN3
+    numeric_id: 22
+    release: "2021-06"
+    task_group: image_gan
+    train_sources: [AIGIBench]
+    test_sources: [DF40]
+    filter: {include: {dataset: [AIGIBench], task_hint: stylegan3}}
+    test: {split: test, include: {dataset: [DF40], task_hint: stylegan3}}
+  - id: lama
+    name: LaMa
+    numeric_id: 23
+    release: "2021-09"
+    task_group: inpainting
+    train_sources: [Dolos]
+    test_sources: [Dolos]
+    filter: {include: {dataset: [Dolos], task_hint: lama}}
+    test: {split: test, include: {dataset: [Dolos], task_hint: lama}}
+  - id: pirender
+    name: PIRender
+    numeric_id: 24
+    release: "2021-09"
+    task_group: talking_head
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: pirender}}
+    test: {split: test, include: {dataset: [DF40], task_hint: pirender}}
+  - id: vqdm
+    name: VQDM / VQ-Diffusion
+    numeric_id: 25
+    release: "2021-11"
+    task_group: image_diffusion
+    train_sources: [GenImage]
+    test_sources: [GenImage]
+    filter: {include: {dataset: [GenImage], task_hint: vqdm}}
+    test: {split: test, include: {dataset: [GenImage], task_hint: vqdm}}
+  - id: glide
+    name: GLIDE
+    numeric_id: 26
+    release: "2021-12"
+    task_group: image_diffusion
+    train_sources: [GenImage]
+    test_sources: [AIGIBench]
+    filter: {include: {dataset: [GenImage], task_hint: glide}}
+    test: {split: test, include: {dataset: [AIGIBench], task_hint: glide}}
+  - id: mobileswap
+    name: MobileSwap
+    numeric_id: 27
+    release: "2022-01"
+    task_group: face_swap
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: mobileswap}}
+    test: {split: test, include: {dataset: [DF40], task_hint: mobileswap}}
+  - id: repaint_ldm
+    name: RePaint-LDM
+    numeric_id: 28
+    release: "2022-01"
+    task_group: inpainting
+    train_sources: [Dolos]
+    test_sources: [Dolos]
+    filter: {include: {dataset: [Dolos], task_hint: repaint_ldm}}
+    test: {split: test, include: {dataset: [Dolos], task_hint: repaint_ldm}}
+  - id: repaint_p2
+    name: RePaint-P2
+    numeric_id: 29
+    release: "2022-01"
+    task_group: inpainting
+    train_sources: [Dolos]
+    test_sources: [Dolos]
+    filter: {include: {dataset: [Dolos], task_hint: repaint_p2}}
+    test: {split: test, include: {dataset: [Dolos], task_hint: repaint_p2}}
+  - id: stylegan_xl
+    name: StyleGAN-XL
+    numeric_id: 30
+    release: "2022-02"
+    task_group: image_gan
+    train_sources: [AIGIBench]
+    test_sources: [DF40]
+    filter: {include: {dataset: [AIGIBench], task_hint: stylegan_xl}}
+    test: {split: test, include: {dataset: [DF40], task_hint: stylegan_xl}}
+  - id: dagan
+    name: DaGAN
+    numeric_id: 31
+    release: "2022-03"
+    task_group: animation
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: dagan}}
+    test: {split: test, include: {dataset: [DF40], task_hint: dagan}}
+  - id: lia
+    name: LIA
+    numeric_id: 32
+    release: "2022-03"
+    task_group: animation
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: lia}}
+    test: {split: test, include: {dataset: [DF40], task_hint: lia}}
+  - id: tpsmm
+    name: TPSMM
+    numeric_id: 33
+    release: "2022-03"
+    task_group: motion_transfer
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: tpsmm}}
+    test: {split: test, include: {dataset: [DF40], task_hint: tpsmm}}
+  - id: wukong
+    name: Wukong
+    numeric_id: 34
+    release: "2022-03"
+    task_group: text_to_image
+    train_sources: [GenImage]
+    test_sources: [GenImage]
+    filter: {include: {dataset: [GenImage], task_hint: wukong}}
+    test: {split: test, include: {dataset: [GenImage], task_hint: wukong}}
+  - id: sd14
+    name: SD1.4
+    numeric_id: 35
+    release: "2022-08"
+    task_group: stable_diffusion
+    train_sources: [GenImage]
+    test_sources: [OpenFake, DFLIP-3K, AIGIBench]
+    filter: {include: {dataset: [GenImage], task_hint: sd14}}
+    test: {split: test, include: {dataset: [OpenFake, DFLIP-3K, AIGIBench], task_hint: sd14}}
+  - id: facedancer
+    name: FaceDancer
+    numeric_id: 36
+    release: "2022-10"
+    task_group: face_swap
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: facedancer}}
+    test: {split: test, include: {dataset: [DF40], task_hint: facedancer}}
+  - id: sd15
+    name: SD1.5
+    numeric_id: 37
+    release: "2022-10"
+    task_group: stable_diffusion
+    train_sources: [GenImage]
+    test_sources: [OpenFake, DFLIP-3K]
+    filter: {include: {dataset: [GenImage], task_hint: sd15}}
+    test: {split: test, include: {dataset: [OpenFake, DFLIP-3K], task_hint: sd15}}
+  - id: e4s
+    name: E4S
+    numeric_id: 38
+    release: "2022-11"
+    task_group: face_synthesis
+    train_sources: [DF40]
+    test_sources: [AIGIBench]
+    filter: {include: {dataset: [DF40], task_hint: e4s}}
+    test: {split: test, include: {dataset: [AIGIBench], task_hint: e4s}}
+  - id: sadtalker
+    name: SadTalker
+    numeric_id: 39
+    release: "2022-11"
+    task_group: talking_head
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: sadtalker}}
+    test: {split: test, include: {dataset: [DF40], task_hint: sadtalker}}
+  - id: dit_xl_2
+    name: DiT-XL/2
+    numeric_id: 40
+    release: "2022-12"
+    task_group: diffusion_transformer
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: dit_xl_2}}
+    test: {split: test, include: {dataset: [DF40], task_hint: dit_xl_2}}
+  - id: sd21
+    name: SD2.1
+    numeric_id: 41
+    release: "2022-12"
+    task_group: stable_diffusion
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K, DF40]
+    filter: {include: {dataset: [OpenFake], task_hint: sd21}}
+    test: {split: test, include: {dataset: [DFLIP-3K, DF40], task_hint: sd21}}
+  - id: midjourney_v5
+    name: Midjourney v5
+    numeric_id: 42
+    release: "2023-03"
+    task_group: closed_text_to_image
+    train_sources: [GenImage]
+    test_sources: [GenImage]
+    filter: {include: {dataset: [GenImage], task_hint: midjourney_v5}}
+    test: {split: test, include: {dataset: [GenImage], task_hint: midjourney_v5}}
+  - id: blendface
+    name: BlendFace
+    numeric_id: 43
+    release: "2023-07"
+    task_group: face_swap_blend
+    train_sources: [DF40]
+    test_sources: [AIGIBench, ForgeryNet]
+    filter: {include: {dataset: [DF40], task_hint: blendface}}
+    test: {split: test, include: {dataset: [AIGIBench, ForgeryNet], task_hint: blendface}}
+  - id: hyperreenact
+    name: HyperReenact
+    numeric_id: 44
+    release: "2023-07"
+    task_group: face_reenactment_video
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: hyperreenact}}
+    test: {split: test, include: {dataset: [DF40], task_hint: hyperreenact}}
+  - id: sd15_dreamshaper
+    name: SD1.5 DreamShaper
+    numeric_id: 45
+    release: "2023-07"
+    task_group: community_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: sd15_dreamshaper}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: sd15_dreamshaper}}
+  - id: sdxl_base
+    name: SDXL-base
+    numeric_id: 46
+    release: "2023-07"
+    task_group: stable_diffusion_xl
+    train_sources: [OpenFake]
+    test_sources: [AIGIBench]
+    filter: {include: {dataset: [OpenFake], task_hint: sdxl_base}}
+    test: {split: test, include: {dataset: [AIGIBench], task_hint: sdxl_base}}
+  - id: rddm
+    name: RDDM
+    numeric_id: 47
+    release: "2023-08"
+    task_group: image_diffusion_needs_verification
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: rddm}}
+    test: {split: test, include: {dataset: [DF40], task_hint: rddm}}
+  - id: dalle3
+    name: DALL-E 3
+    numeric_id: 48
+    release: "2023-09"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: dalle3}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: dalle3}}
+  - id: pixart_alpha
+    name: PixArt-alpha
+    numeric_id: 49
+    release: "2023-09"
+    task_group: image_diffusion
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: pixart_alpha}}
+    test: {split: test, include: {dataset: [DF40], task_hint: pixart_alpha}}
+  - id: realistic_vision_v51_novae
+    name: Realistic Vision v5.1 Novae
+    numeric_id: 50
+    release: "2023-09"
+    task_group: community_photorealistic_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: realistic_vision_v51_novae}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: realistic_vision_v51_novae}}
+  - id: sdxl_juggernaut
+    name: SDXL Juggernaut
+    numeric_id: 51
+    release: "2023-10"
+    task_group: community_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: sdxl_juggernaut}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: sdxl_juggernaut}}
+  - id: playground_v2
+    name: Playground-v2
+    numeric_id: 52
+    release: "2023-11"
+    task_group: text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: playground_v2}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: playground_v2}}
+  - id: midjourney_v6
+    name: Midjourney v6
+    numeric_id: 53
+    release: "2023-12"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [AIGIBench]
+    filter: {include: {dataset: [OpenFake], task_hint: midjourney_v6}}
+    test: {split: test, include: {dataset: [AIGIBench], task_hint: midjourney_v6}}
+  - id: animagine_xl_30
+    name: Animagine XL 3.0
+    numeric_id: 54
+    release: "2024-01"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: animagine_xl_30}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: animagine_xl_30}}
+  - id: sit_xl_2
+    name: SiT-XL/2
+    numeric_id: 55
+    release: "2024-01"
+    task_group: diffusion_transformer
+    train_sources: [DF40]
+    test_sources: [DF40]
+    filter: {include: {dataset: [DF40], task_hint: sit_xl_2}}
+    test: {split: test, include: {dataset: [DF40], task_hint: sit_xl_2}}
+  - id: playground_v25
+    name: Playground-v2.5
+    numeric_id: 56
+    release: "2024-02"
+    task_group: text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: playground_v25}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: playground_v25}}
+  - id: realvisxl_v40
+    name: RealVisXL v4.0
+    numeric_id: 57
+    release: "2024-02"
+    task_group: community_photorealistic_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: realvisxl_v40}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: realvisxl_v40}}
+  - id: stable_cascade
+    name: Stable Cascade
+    numeric_id: 58
+    release: "2024-02"
+    task_group: cascade_diffusion
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: stable_cascade}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: stable_cascade}}
+  - id: animagine_xl_31
+    name: Animagine XL 3.1
+    numeric_id: 59
+    release: "2024-03"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: animagine_xl_31}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: animagine_xl_31}}
+  - id: pony
+    name: Pony
+    numeric_id: 60
+    release: "2024-03"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: pony}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: pony}}
+  - id: hunyuan_dit
+    name: Hunyuan-DiT
+    numeric_id: 61
+    release: "2024-05"
+    task_group: diffusion_transformer
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: hunyuan_dit}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: hunyuan_dit}}
+  - id: kolors
+    name: Kolors
+    numeric_id: 62
+    release: "2024-07"
+    task_group: image_diffusion
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: kolors}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: kolors}}
+  - id: flux1
+    name: FLUX.1
+    numeric_id: 63
+    release: "2024-08"
+    task_group: rectified_flow
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K, AIGIBench]
+    filter: {include: {dataset: [OpenFake], task_hint: flux1}}
+    test: {split: test, include: {dataset: [DFLIP-3K, AIGIBench], task_hint: flux1}}
+  - id: imagen_30
+    name: Imagen 3.0
+    numeric_id: 64
+    release: "2024-08"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [AIGIBench]
+    filter: {include: {dataset: [OpenFake], task_hint: imagen_30}}
+    test: {split: test, include: {dataset: [AIGIBench], task_hint: imagen_30}}
+  - id: amateur_photography_v5_final
+    name: Amateur Photography v5 Final
+    numeric_id: 65
+    release: "2024-09"
+    task_group: community_photorealistic_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: amateur_photography_v5_final}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: amateur_photography_v5_final}}
+  - id: auraflow
+    name: AuraFlow
+    numeric_id: 66
+    release: "2024-09"
+    task_group: flow_diffusion
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: auraflow}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: auraflow}}
+  - id: illustrious
+    name: Illustrious
+    numeric_id: 67
+    release: "2024-09"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: illustrious}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: illustrious}}
+  - id: flux11_pro
+    name: FLUX.1.1 Pro
+    numeric_id: 68
+    release: "2024-10"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: flux11_pro}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: flux11_pro}}
+  - id: noobai
+    name: NoobAI
+    numeric_id: 69
+    release: "2024-10"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: noobai}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: noobai}}
+  - id: sd35
+    name: SD3.5
+    numeric_id: 70
+    release: "2024-10"
+    task_group: stable_diffusion
+    train_sources: [OpenFake]
+    test_sources: [OpenFake, DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: sd35}}
+    test: {split: test, include: {dataset: [OpenFake, DFLIP-3K], task_hint: sd35}}
+  - id: grok_2_image_1212
+    name: Grok-2-Image-1212
+    numeric_id: 71
+    release: "2024-12"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: grok_2_image_1212}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: grok_2_image_1212}}
+  - id: hunyuanvideo
+    name: HunyuanVideo
+    numeric_id: 72
+    release: "2024-12"
+    task_group: video_generation_frame
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: hunyuanvideo}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: hunyuanvideo}}
+  - id: animagine_xl_40
+    name: Animagine XL 4.0
+    numeric_id: 73
+    release: "2025-01"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: animagine_xl_40}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: animagine_xl_40}}
+  - id: amateur_photography_v6
+    name: Amateur Photography v6
+    numeric_id: 74
+    release: "2025-03"
+    task_group: community_photorealistic_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: amateur_photography_v6}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: amateur_photography_v6}}
+  - id: ideogram_30
+    name: Ideogram 3.0
+    numeric_id: 75
+    release: "2025-03"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: ideogram_30}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: ideogram_30}}
+  - id: gpt_image_1
+    name: GPT-Image-1
+    numeric_id: 76
+    release: "2025-04"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: gpt_image_1}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: gpt_image_1}}
+  - id: hidream_i1
+    name: HiDream-I1
+    numeric_id: 77
+    release: "2025-04"
+    task_group: open_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: hidream_i1}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: hidream_i1}}
+  - id: seedream
+    name: Seedream
+    numeric_id: 78
+    release: "2025-04"
+    task_group: text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: seedream}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: seedream}}
+  - id: imagen_4
+    name: Imagen-4
+    numeric_id: 79
+    release: "2025-05"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: imagen_4}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: imagen_4}}
+  - id: grok_imagine
+    name: Grok Imagine
+    numeric_id: 80
+    release: "2025-08"
+    task_group: closed_text_to_image_or_video
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: grok_imagine}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: grok_imagine}}
+  - id: nano_banana
+    name: Nano Banana
+    numeric_id: 81
+    release: "2025-08"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: nano_banana}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: nano_banana}}
+  - id: qwen_image
+    name: Qwen-Image
+    numeric_id: 82
+    release: "2025-08"
+    task_group: open_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: qwen_image}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: qwen_image}}
+  - id: kling_video_v25_turbo
+    name: Kling Video v2.5 Turbo
+    numeric_id: 83
+    release: "2025-09"
+    task_group: video_generation_frame
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: kling_video_v25_turbo}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: kling_video_v25_turbo}}
+  - id: seedream_v40
+    name: Seedream v4.0
+    numeric_id: 84
+    release: "2025-09"
+    task_group: text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: seedream_v40}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: seedream_v40}}
+  - id: chroma
+    name: Chroma
+    numeric_id: 85
+    release: "2025-10"
+    task_group: open_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: chroma}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: chroma}}
+  - id: pony_v7
+    name: Pony v7
+    numeric_id: 86
+    release: "2025-10"
+    task_group: anime_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: pony_v7}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: pony_v7}}
+  - id: tiny_random_sana
+    name: Tiny-Random-Sana
+    numeric_id: 87
+    release: "2025-10"
+    task_group: test_or_tiny_model_needs_verification
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: tiny_random_sana}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: tiny_random_sana}}
+  - id: flux2_dev
+    name: FLUX.2-dev
+    numeric_id: 88
+    release: "2025-11"
+    task_group: rectified_flow
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: flux2_dev}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: flux2_dev}}
+  - id: nano_banana_pro
+    name: Nano Banana Pro
+    numeric_id: 89
+    release: "2025-11"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: nano_banana_pro}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: nano_banana_pro}}
+  - id: z_image
+    name: Z-Image
+    numeric_id: 90
+    release: "2025-11"
+    task_group: open_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: z_image}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: z_image}}
+  - id: seedream_v45
+    name: Seedream v4.5
+    numeric_id: 91
+    release: "2025-12"
+    task_group: text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: seedream_v45}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: seedream_v45}}
+  - id: flux2_klein_4b
+    name: FLUX.2 Klein 4B
+    numeric_id: 92
+    release: "2026-01"
+    task_group: open_or_community_flow_model
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: flux2_klein_4b}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: flux2_klein_4b}}
+  - id: ltxv_23
+    name: LTXV 2.3
+    numeric_id: 93
+    release: "2026-01"
+    task_group: video_generation_frame
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: ltxv_23}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: ltxv_23}}
+  - id: cyberrealistic_xl_v90
+    name: CyberRealistic XL v9.0
+    numeric_id: 94
+    release: "2026-02"
+    task_group: community_photorealistic_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: cyberrealistic_xl_v90}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: cyberrealistic_xl_v90}}
+  - id: anima
+    name: Anima
+    numeric_id: 95
+    release: "2026-03"
+    task_group: community_checkpoint_needs_verification
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: anima}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: anima}}
+  - id: sdxl_realvisxl_v5
+    name: SDXL RealVisXL v5
+    numeric_id: 96
+    release: "2026-03"
+    task_group: community_photorealistic_checkpoint
+    train_sources: [OpenFake]
+    test_sources: [DFLIP-3K]
+    filter: {include: {dataset: [OpenFake], task_hint: sdxl_realvisxl_v5}}
+    test: {split: test, include: {dataset: [DFLIP-3K], task_hint: sdxl_realvisxl_v5}}
+  - id: nano_banana_2
+    name: Nano Banana 2
+    numeric_id: 97
+    release: "2026-05"
+    task_group: closed_text_to_image
+    train_sources: [OpenFake]
+    test_sources: [OpenFake]
+    filter: {include: {dataset: [OpenFake], task_hint: nano_banana_2}}
+    test: {split: test, include: {dataset: [OpenFake], task_hint: nano_banana_2}}

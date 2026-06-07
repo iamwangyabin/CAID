@@ -140,5 +140,6 @@ tests/          smoke and packaging tests
 ## More Detail
 
 - `docs/METHOD_MAPPING.md`: method-to-paper mapping and implementation notes.
+- `docs/METHOD_PUBLICATIONS.md`: paper titles, venues, years, and source links for method keys.
 - `docs/HF_ARROW_COMPAT_PROTOCOL.md`: AID Arrow sidecar schema and YAML protocol interface.
 - `docs/OFFICIAL_REPO_INTEGRATION.md`: reproduction and official-code integration checklist.

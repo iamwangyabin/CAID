@@ -1,0 +1,31 @@
+# Method publication metadata
+
+This file records the publication source for each CAIDBench method key. It is
+intended to complement `METHOD_MAPPING.md` and
+`OFFICIAL_REPO_INTEGRATION.md`: those files describe implementation mechanics
+and reproduction settings, while this file records where each method came from.
+
+Checked on: 2026-06-03.
+
+| Method key(s) | Paper or source | Venue / year | Source | Notes |
+| --- | --- | --- | --- | --- |
+| `finetune`, `seq_ft` | Sequential fine-tuning baseline | Baseline, no standalone method paper | - | Control method used for comparison, not a paper-specific CAIDBench method. |
+| `cddb`, `cddb_baseline` | A Continual Deepfake Detection Benchmark: Dataset, Methods, and Essentials | WACV 2023 | [CVF](https://openaccess.thecvf.com/content/WACV2023/html/Li_A_Continual_Deepfake_Detection_Benchmark_Dataset_Methods_and_Essentials_WACV_2023_paper.html) | CAIDBench uses this key for CDDB-style continual deepfake detection baselines and protocols. |
+| `e3` | E3: Ensemble of Expert Embedders for Adapting Synthetic Image Detectors to New Generators Using Limited Data | CVPR Workshops 2024 | [CVF](https://openaccess.thecvf.com/content/CVPR2024W/WMF/html/Azizpour_E3_Ensemble_of_Expert_Embedders_for_Adapting_Synthetic_Image_Detectors_CVPRW_2024_paper.html) | CVPR 2024 Workshop on Media Forensics. |
+| `ca_adapter_cail`, `content_agnostic_adapter` | Towards Extensible Detection of AI-Generated Images via Content-Agnostic Adapter-Based Category-Aware Incremental Learning | IEEE TIFS 2025 | [official project](https://theshuai-t.github.io/AI-image-incremental-detection/) | Paper title does not define a short method acronym; CAIDBench uses a descriptive key. |
+| `hsic_bottleneck`, `hsic` | HSIC Bottleneck for Cross-Generator and Domain-Incremental Synthetic Image Detection | ICLR 2026 | [OpenReview](https://openreview.net/forum?id=msLnKDvhBx) | Includes HSIC bottleneck and HSIC-Guided Replay (HGR). |
+| `saido` | SAIDO: Generalizable Detection of AI-Generated Images via Scene-Aware and Importance-Guided Dynamic Optimization in Continual Learning | CVPR 2026 | [CVPR listing](https://cvpr.thecvf.com/Conferences/2026/Videos), [arXiv](https://arxiv.org/abs/2512.00539) | No official repository was found when checked. |
+| `cored` | CoReD: Generalizing Fake Media Detection with Continual Representation using Distillation | ACM Multimedia 2021 | [SKKU Pure](https://pure.skku.edu/en/publications/cored-generalizing-fake-media-detection-with-continual-representa) | Continual fake media / deepfake detection method. |
+| `dfil` | DFIL: Deepfake Incremental Learning by Exploiting Domain-invariant Forgery Clues | ACM Multimedia 2023 | [dblp](https://dblp.org/rec/conf/mm/PanYW0BL0C023) | Continual deepfake detection method. |
+| `prompt2guard` | Conditioned Prompt-Optimization for Continual Deepfake Detection | ICPR 2024 | [Springer DOI](https://doi.org/10.1007/978-3-031-78189-6_5) | The paper introduces Prompt2Guard. |
+| `sprompts`, `s_prompts`, `s-prompts` | S-Prompts Learning with Pre-trained Transformers: An Occam's Razor for Domain Incremental Learning | NeurIPS 2022 | [NeurIPS](https://proceedings.neurips.cc/paper_files/paper/2022/hash/25886d7a7cf4e33fd44072a0cd81bf30-Abstract-Conference.html) | General domain-incremental learning method; CAIDBench adapts the S-iPrompts / S-liPrompts mechanics. |
+| `ranpac` | RanPAC: Random Projections and Pre-trained Models for Continual Learning | NeurIPS 2023 | [NeurIPS](https://proceedings.neurips.cc/paper_files/paper/2023/hash/2793dc35e14003dd367684d93d236847-Abstract-Conference.html) | General continual learning method adapted to CAIDBench / CDDB. |
+| `layup` | Read Between the Layers: Leveraging Multi-Layer Representations for Rehearsal-Free Continual Learning with Pre-Trained Models | TMLR 2024 | [OpenReview](https://openreview.net/forum?id=ZTcxp9xYr2) | LayUP is a rehearsal-free continual learning method using multi-layer statistics. |
+| `pina`, `pina_d`, `pina-d` | Non-Exemplar Domain Incremental Learning via Cross-Domain Concept Integration | ECCV 2024 | [ECVA](https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/6534_ECCV_2024_paper.php) | The paper introduces PINA; CAIDBench maps `pina_d` to the deeper adapter variant. |
+| `cp_prompt`, `cp-prompt`, `cpprompt` | CP-Prompt: Composition-Based Cross-modal Prompting for Domain-Incremental Continual Learning | ACM Multimedia 2024 | [ACM DOI](https://doi.org/10.1145/3664647.3681481) | General cross-modal DIL method; CDDB-Hard is one reported benchmark. |
+| `duct` | Dual Consolidation for Pre-Trained Model-Based Domain-Incremental Learning | CVPR 2025 | [CVF](https://openaccess.thecvf.com/content/CVPR2025/html/Zhou_Dual_Consolidation_for_Pre-Trained_Model-Based_Domain-Incremental_Learning_CVPR_2025_paper.html) | General DIL method adapted to CAIDBench / CDDB. |
+| `soyo` | Boosting Domain Incremental Learning: Selecting the Optimal Parameters is All You Need | CVPR 2025 | [CVF PDF](https://openaccess.thecvf.com/content/CVPR2025/papers/Wang_Boosting_Domain_Incremental_Learning_Selecting_the_Optimal_Parameters_is_All_CVPR_2025_paper.pdf) | General parameter-isolation DIL method adapted to CAIDBench / CDDB. |
+| `loranpac`, `lo_ranpac` | LoRanPAC: Low-rank Random Features and Pre-trained Models for Bridging Theory and Practice in Continual Learning | ICLR 2025 | [OpenReview](https://openreview.net/forum?id=bqv7M0wc4x) | General continual learning method adapted to CAIDBench / CDDB. |
+| `dce` | Addressing Imbalanced Domain-Incremental Learning through Dual-Balance Collaborative Experts | ICML 2025 | [PMLR](https://proceedings.mlr.press/v267/li25eb.html) | General imbalanced DIL method adapted to CAIDBench / CDDB. |
+| `hdp` | Continual Face Forgery Detection via Historical Distribution Preserving | IJCV 2025 | [Springer DOI](https://doi.org/10.1007/s11263-024-02160-1) | Online first in 2024; IJCV volume 133, issue 3, pages 1067-1084 in 2025. |
+| `sur_lid`, `sur-lid` | Stacking Brick by Brick: Aligned Feature Isolation for Incremental Face Forgery Detection | CVPR 2025 | [CVF](https://openaccess.thecvf.com/content/CVPR2025/html/Cheng_Stacking_Brick_by_Brick_Aligned_Feature_Isolation_for_Incremental_Face_CVPR_2025_paper.html) | Paper introduces Sparse Uniform Replay (SUR) and Latent-space Incremental Detector (LID). |

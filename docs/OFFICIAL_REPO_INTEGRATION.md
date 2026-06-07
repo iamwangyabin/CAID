@@ -17,7 +17,15 @@ For every paper-method run, record these fields in the YAML config or run metada
 
 Official reference: `ArefAz/E3-Ensemble-of-Expert-Embedders-CVPRWMF24@9ed8357f9ee5c891dcf028992b7e0d6e469aa0f6`; key files are `models/expert_classifier.py`, `models/mixture_transformer.py`, `models/transformer.py`, and `models/classifier_head.py`.
 
-Use `method.name=e3`. Replace the default backbone with the paper detector backbone. Use the first AID Arrow task as the baseline training corpus, then one task per new generator. Set `memory_size=1000`, rebalance replay by generator, use 200-D expert embeddings, and set EKFN to transformer depth 5, 8 heads, hidden size 64, and dropout 0.5 unless reproducing a different ablation.
+Use `method.name=e3`. Match the released code path, not just the paper sketch:
+
+- Backbone: use the official `MISLNet` expert detector backbone with 256x256 crops, `num_filters=6`, and the released constrained-convolution path. Do not keep the CAIDBench `small_conv` fallback for reproduction runs.
+- Expert detector loss: use `BCEWithLogitsLoss` on binary one-hot targets, not cross-entropy on class IDs.
+- EKFN: use the released `MixtureTransformer` path, i.e. `SpatioTempIncModule` plus the official classifier head (`Linear -> Dropout(0.5) -> ReLU -> Linear`). Do not substitute a generic `nn.TransformerEncoder`.
+- Continual control flow: keep one frozen baseline embedder from the first task, then fine-tune one new expert per later task, always initializing that expert from the baseline detector weights rather than from the previous expert. Match the released `fixed_memory` behavior exactly: rebuild the EKFN train snapshot each task by concatenating the real dataset first and then each seen synthetic dataset in task order, taking the first `N` rows from each dataset according to the official per-dataset limits. Do not use reservoir replay or random exemplar sampling for this path.
+- Recipe: use the official preprocessing and optimization defaults: `ResizeIfSmaller(256)`, train `RandomCrop(256)`, eval `CenterCrop(256)`, JPEG round-trip quality `99`, `ToTensor`, no ImageNet normalization, `batch_size=64`, `memory_size=1000`, `train_dataset_limit_per_class=500`, `train_dataset_limit_real=500`, baseline `AdamW(lr=1e-4, weight_decay=0.01)` with `StepLR(step_size=3, gamma=0.75)`, expert fine-tuning `lr=5e-5`, and EKFN classifier-head training `lr=2.5e-4` with `StepLR(step_size=100000, gamma=0.8)`.
+
+CAIDBench still uses the first Arrow task as the baseline-training corpus when no separate official pretraining corpus is provided. Record that substitution in experiment metadata whenever reporting E3 reproduction numbers.
 
 ## Content-Agnostic Adapter-Based Category-Aware Incremental Learning
 
@@ -27,11 +35,11 @@ Use `method.name=ca_adapter_cail`. Replace the default backbone with the ViT/Xce
 
 ## HSIC Bottleneck
 
-No official repository could be confirmed. The closest public reference is the ICLR 2026 OpenReview submission `msLnKDvhBx`.
+Official reference: `jamesyoung0623/HSIC`; key files are `train_HSIC.py`, `train_HGR.py`, `utils/loss.py`, `networks/base_model.py`, and `networks/trainer_hgr.py`.
 
-Use AID Arrow image data and online CLIP extraction. Set `method.name=hsic_bottleneck`, use a YAML transform list with CLIP mean/std normalization, and set `method.detector_cfg.backbone.type=clip_vision`. The default config uses frozen OpenAI CLIP ViT-L/14 through `open_clip_torch`, so install the optional dependencies with `pip install -e .[clip]`. Put generator IDs in AID JSON metadata or `caid_meta.jsonl` if you extend `HSICBottleneckMethod._nuisance_ids`. The HGR selector combines label-HSIC relevance with k-center coverage and subtracts nuisance alignment when generator/domain IDs are available.
+Use `method.name=hsic_bottleneck` with `objective=official`. CAIDBench keeps the data interface image-native: every minibatch computes frozen backbone features online, feeds them to a 64-D HSIC bottleneck encoder, and applies the released Dual-HSIC objective `lambda_x * HSIC(z, x) - lambda_y * HSIC(z, y)`. No `packed_features.npy` files are written or read. The default `configs/hsic_bottleneck.yaml` uses OpenAI CLIP ViT-L/14 normalization and an online `clip_vision` backbone; install optional CLIP dependencies with `pip install -e .[clip]`.
 
-The previous offline feature path is no longer a training data interface; use AID Arrow image data for HSIC reproduction.
+For GenImage/SDv4-style reproduction, keep the official `lambda_x=900`, `lambda_y=700` defaults in `configs/hsic_bottleneck.yaml`; for ProGAN-style base runs, use `lambda_x=500`, `lambda_y=600`. HGR replay is represented by storing selected CAIDBench sample rows and recomputing their features during replay. Selection follows the released k-center plus HSIC-centrality rule with `hgr_alpha`; use `hgr_keep_frac=0.01` for the official buffer fraction, or `memory_size` as a hard cap.
 
 ## SAIDO
 

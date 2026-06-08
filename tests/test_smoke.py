@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import json
 import re
 import sys
@@ -131,6 +132,38 @@ def test_train_eta_duration_formatting():
     assert _format_duration(9.4) == "9s"
     assert _format_duration(65) == "1m05s"
     assert _format_duration(3661) == "1h01m01s"
+
+
+def test_train_logging_uses_step_instead_of_batch(caplog):
+    trainer = Trainer.__new__(Trainer)
+    trainer.logger = logging.getLogger("caidbench.test.train_log")
+    trainer.logger.setLevel(logging.INFO)
+    trainer.global_step = 123
+    trainer._active_train_task_index = None
+
+    payload = {
+        "train/loss": 0.9272,
+        "train/acc": 0.5722,
+        "train/lr": 1e-5,
+    }
+
+    with caplog.at_level(logging.INFO, logger="caidbench.test.train_log"):
+        trainer._print_train_metrics(
+            payload,
+            task=None,
+            task_name="ProGAN",
+            phase=None,
+            epochs=20,
+            batch_idx=50,
+            num_batches=11252,
+            started_at=None,
+        )
+
+    msg = caplog.records[-1].getMessage()
+    assert "batch=" not in msg
+    assert msg.count("step=") == 1
+    assert "step=50/11252" in msg
+    assert "step=123" not in msg
 
 
 def test_finetune_smoke(tmp_path):

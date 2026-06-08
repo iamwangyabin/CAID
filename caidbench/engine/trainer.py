@@ -207,14 +207,13 @@ class Trainer:
             batch_idx = min(max(int(batch_idx), 0), int(num_batches))
             num_batches = int(num_batches)
             progress = 100.0 * batch_idx / max(num_batches, 1)
-            parts.append(f"batch={batch_idx}/{num_batches}")
+            parts.append(f"step={batch_idx}/{num_batches}")
             parts.append(f"progress={progress:.2f}%")
             if started_at is not None and batch_idx > 0:
                 elapsed = max(time.monotonic() - float(started_at), 0.0)
                 remaining = max(num_batches - batch_idx, 0)
                 eta = elapsed / batch_idx * remaining
                 parts.append(f"eta={_format_duration(eta)}")
-        parts.append(f"step={self.global_step}")
         if "train/lr" in payload:
             parts.append(f"lr={float(payload['train/lr']):.6g}")
         parts.extend(f"{key}={value:.4f}" for key, value in metrics.items())

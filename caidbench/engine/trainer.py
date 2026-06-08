@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Iterable, Mapping
 from pathlib import Path
-
-try:
-    from tqdm.auto import tqdm
-except Exception:  # pragma: no cover - optional dependency
-    tqdm = None
 
 import numpy as np
 import pandas as pd
@@ -26,46 +22,16 @@ from ..utils.seed import seed_everything
 from ..utils.tensor import move_to_device
 
 
-class _ProgressDataLoader:
-    def __init__(
-        self,
-        loader,
-        *,
-        enabled: bool,
-        desc: str,
-        leave: bool = False,
-        unit: str = "batch",
-    ) -> None:
-        self._loader = loader
-        self._enabled = bool(enabled and tqdm is not None)
-        self._desc = desc
-        self._leave = leave
-        self._unit = unit
-        self._passes = 0
-
-    def __len__(self) -> int:
-        return len(self._loader)
-
-    def __iter__(self):
-        self._passes += 1
-        desc = self._desc if self._passes == 1 else f"{self._desc} | pass {self._passes}"
-        return self.iter_with_progress(desc=desc)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._loader, name)
-
-    def iter_with_progress(self, *, desc: str | None = None, leave: bool | None = None, unit: str | None = None):
-        iterator = iter(self._loader)
-        if not self._enabled:
-            return iterator
-        return tqdm(
-            iterator,
-            total=len(self._loader),
-            desc=desc or self._desc,
-            dynamic_ncols=True,
-            leave=self._leave if leave is None else bool(leave),
-            unit=unit or self._unit,
-        )
+def _format_duration(seconds: float) -> str:
+    seconds = max(float(seconds), 0.0)
+    total = int(round(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes}m{secs:02d}s"
+    return f"{secs}s"
 
 
 class Trainer:
@@ -103,7 +69,6 @@ class Trainer:
         self.train_log_interval = int(train_cfg.get("log_interval", 50))
         if self.train_log_interval <= 0:
             self.train_log_interval = 0
-        self.show_tqdm = bool(train_cfg.get("tqdm", True))
         self.grad_clip = train_cfg.get("grad_clip")
         self.grad_clip = None if self.grad_clip is None else float(self.grad_clip)
         self.optimizer_cfg = dict(train_cfg.get("optimizer", {"type": "adamw", "lr": 1e-4}))
@@ -136,14 +101,7 @@ class Trainer:
             persistent_workers=self.persistent_workers,
             prefetch_factor=self.prefetch_factor,
         )
-        task = self.scenario.tasks[task_index]
-        return _ProgressDataLoader(
-            loader,
-            enabled=self.show_tqdm,
-            desc=f"Task {task.name} | {split}",
-            leave=False,
-            unit="batch",
-        )
+        return loader
 
     @staticmethod
     def _scalar_train_metrics(metrics: Mapping[str, Any]) -> dict[str, float]:
@@ -172,6 +130,9 @@ class Trainer:
         lr: float | None = None,
         phase: str | None = None,
         step: int | None = None,
+        batch_idx: int | None = None,
+        num_batches: int | None = None,
+        started_at: float | None = None,
     ) -> None:
         payload: dict[str, Any] = {}
         for key, value in self._scalar_train_metrics(metrics).items():
@@ -191,7 +152,16 @@ class Trainer:
             payload["train/lr"] = float(lr)
         if not payload:
             return
-        self._print_train_metrics(payload, task=task, task_name=task_name, phase=phase, epochs=epochs)
+        self._print_train_metrics(
+            payload,
+            task=task,
+            task_name=task_name,
+            phase=phase,
+            epochs=epochs,
+            batch_idx=batch_idx,
+            num_batches=num_batches,
+            started_at=started_at,
+        )
         self.log_metrics(payload, step=step)
 
     def _print_train_metrics(
@@ -202,6 +172,9 @@ class Trainer:
         task_name: str | None,
         phase: str | None,
         epochs: int | float | None,
+        batch_idx: int | None,
+        num_batches: int | None,
+        started_at: float | None,
     ) -> None:
         metrics = {
             str(key)[len("train/") :]: float(value)
@@ -225,6 +198,17 @@ class Trainer:
                 parts.append(f"epoch={epoch}/{int(float(epochs))}")
             else:
                 parts.append(f"epoch={epoch}")
+        if batch_idx is not None and num_batches is not None and num_batches > 0:
+            batch_idx = min(max(int(batch_idx), 0), int(num_batches))
+            num_batches = int(num_batches)
+            progress = 100.0 * batch_idx / max(num_batches, 1)
+            parts.append(f"batch={batch_idx}/{num_batches}")
+            parts.append(f"progress={progress:.2f}%")
+            if started_at is not None and batch_idx > 0:
+                elapsed = max(time.monotonic() - float(started_at), 0.0)
+                remaining = max(num_batches - batch_idx, 0)
+                eta = elapsed / batch_idx * remaining
+                parts.append(f"eta={_format_duration(eta)}")
         parts.append(f"step={self.global_step}")
         if "train/lr" in payload:
             parts.append(f"lr={float(payload['train/lr']):.6g}")
@@ -244,23 +228,12 @@ class Trainer:
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
         optimizer = optimizer or method.configure_optimizer(self.optimizer_cfg)
-        use_tqdm = bool(self.show_tqdm and tqdm is not None)
+        num_batches = len(train_loader)
         for epoch in range(self.max_epochs):
             totals: dict[str, float] = {}
             n = 0
-            if hasattr(train_loader, "iter_with_progress"):
-                bar = train_loader.iter_with_progress(desc=f"Task {task.name} | epoch {epoch + 1}/{self.max_epochs}")
-            elif use_tqdm:
-                bar = tqdm(
-                    train_loader,
-                    desc=f"Task {task.name} | epoch {epoch + 1}/{self.max_epochs}",
-                    dynamic_ncols=True,
-                    leave=False,
-                    unit="batch",
-                )
-            else:
-                bar = train_loader
-            for batch in bar:
+            epoch_started_at = time.monotonic()
+            for batch_idx, batch in enumerate(train_loader, start=1):
                 batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
                 out = method.observe(batch, task)
                 loss = out["loss"]
@@ -278,13 +251,29 @@ class Trainer:
 
                 if self.train_log_interval > 0 and n % self.train_log_interval == 0:
                     metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                    self.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=self.max_epochs, optimizer=optimizer)
-                    if hasattr(bar, "set_postfix") and "loss" in metrics:
-                        bar.set_postfix(loss=f"{metrics['loss']:.4f}", step=self.global_step, refresh=False)
+                    self.log_train_metrics(
+                        metrics,
+                        task=task,
+                        epoch=epoch + 1,
+                        epochs=self.max_epochs,
+                        optimizer=optimizer,
+                        batch_idx=batch_idx,
+                        num_batches=num_batches,
+                        started_at=epoch_started_at,
+                    )
 
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                self.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=self.max_epochs, optimizer=optimizer)
+                self.log_train_metrics(
+                    metrics,
+                    task=task,
+                    epoch=epoch + 1,
+                    epochs=self.max_epochs,
+                    optimizer=optimizer,
+                    batch_idx=n,
+                    num_batches=num_batches,
+                    started_at=epoch_started_at,
+                )
 
     def advance_step(self, n: int = 1) -> None:
         self.global_step += int(n)

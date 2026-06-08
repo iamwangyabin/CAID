@@ -13,6 +13,7 @@ import pytest
 
 from caidbench.data.scenario import ContinualScenario
 from caidbench.engine import Trainer
+from caidbench.engine.trainer import _format_duration
 from caidbench.models.backbones import build_backbone
 from caidbench.registry import list_methods
 
@@ -124,6 +125,12 @@ def test_registry_contains_methods():
         "hdp",
         "sur_lid",
     }.issubset(set(list_methods()))
+
+
+def test_train_eta_duration_formatting():
+    assert _format_duration(9.4) == "9s"
+    assert _format_duration(65) == "1m05s"
+    assert _format_duration(3661) == "1h01m01s"
 
 
 def test_finetune_smoke(tmp_path):

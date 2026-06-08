@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import math
 import pickle
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -684,18 +685,14 @@ class Prompt2GuardMethod(ContinualMethod):
         optimizer = self.configure_optimizer(trainer.optimizer_cfg)
         base_lrs = [float(group["lr"]) for group in optimizer.param_groups]
         epochs = int(trainer.max_epochs)
+        num_batches = len(train_loader)
         for epoch in range(epochs):
             self._set_epoch_lr(optimizer, base_lrs, epoch, epochs)
             total_loss = 0.0
             total = 0
             correct = 0
-            if hasattr(train_loader, "iter_with_progress"):
-                bar = train_loader.iter_with_progress(
-                    desc=f"Task {getattr(task, 'name', self.current_task_index)} | epoch {epoch + 1}/{epochs}"
-                )
-            else:
-                bar = train_loader
-            for batch_idx, batch in enumerate(bar, start=1):
+            epoch_started_at = time.monotonic()
+            for batch_idx, batch in enumerate(train_loader, start=1):
                 non_blocking = bool(getattr(trainer, "non_blocking", False))
                 x = batch["x"].to(self.device, non_blocking=non_blocking)
                 y = batch["y"].long().to(self.device, non_blocking=non_blocking)
@@ -721,13 +718,9 @@ class Prompt2GuardMethod(ContinualMethod):
                         epoch=epoch + 1,
                         epochs=epochs,
                         optimizer=optimizer,
-                    )
-                if hasattr(bar, "set_postfix"):
-                    bar.set_postfix(
-                        loss=f"{total_loss / max(batch_idx, 1):.4f}",
-                        acc=f"{correct / max(total, 1):.4f}",
-                        step=getattr(trainer, "global_step", 0),
-                        refresh=False,
+                        batch_idx=batch_idx,
+                        num_batches=num_batches,
+                        started_at=epoch_started_at,
                     )
             trainer.log_train_metrics(
                 {
@@ -738,6 +731,9 @@ class Prompt2GuardMethod(ContinualMethod):
                 epoch=epoch + 1,
                 epochs=epochs,
                 optimizer=optimizer,
+                batch_idx=num_batches,
+                num_batches=num_batches,
+                started_at=epoch_started_at,
             )
         return True
 

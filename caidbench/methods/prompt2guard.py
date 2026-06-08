@@ -554,6 +554,7 @@ class Prompt2GuardMethod(ContinualMethod):
         weight_decay: float = 2e-4,
         warmup_epoch: int = 1,
         warmup_lr: float = 1e-5,
+        debug_max_steps_per_epoch: int | None = 100,
         **kwargs: Any,
     ) -> None:
         nn.Module.__init__(self)
@@ -582,6 +583,7 @@ class Prompt2GuardMethod(ContinualMethod):
         self.weight_decay = float(weight_decay)
         self.warmup_epoch = int(warmup_epoch)
         self.warmup_lr = float(warmup_lr)
+        self.debug_max_steps_per_epoch = None if debug_max_steps_per_epoch is None else int(debug_max_steps_per_epoch)
         self.task_ids: list[int] = []
         self.current_task_index = -1
 
@@ -680,14 +682,25 @@ class Prompt2GuardMethod(ContinualMethod):
         for group, lr in zip(optimizer.param_groups, lrs):
             group["lr"] = lr
 
+    def _log_stage(self, trainer: Any, message: str) -> None:
+        logger = getattr(trainer, "logger", None)
+        if logger is not None:
+            logger.info("[Prompt2Guard] %s", message)
+
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
         self.train()
         optimizer = self.configure_optimizer(trainer.optimizer_cfg)
         base_lrs = [float(group["lr"]) for group in optimizer.param_groups]
         epochs = int(trainer.max_epochs)
         num_batches = len(train_loader)
+        step_limit = self.debug_max_steps_per_epoch
+        self._log_stage(
+            trainer,
+            f"fit_task start task={getattr(task, 'name', task)} epochs={epochs} step_limit={step_limit if step_limit is not None else 'full'}",
+        )
         for epoch in range(epochs):
             self._set_epoch_lr(optimizer, base_lrs, epoch, epochs)
+            self._log_stage(trainer, f"fit_task epoch_begin epoch={epoch + 1}/{epochs} task={getattr(task, 'name', task)}")
             total_loss = 0.0
             total = 0
             correct = 0
@@ -708,6 +721,12 @@ class Prompt2GuardMethod(ContinualMethod):
                 pred = out["logits"].argmax(dim=1)
                 correct += int((pred == y).sum().detach().cpu())
                 total += int(y.numel())
+                if step_limit is not None and batch_idx >= step_limit:
+                    self._log_stage(
+                        trainer,
+                        f"fit_task epoch_stop epoch={epoch + 1}/{epochs} reached_step_limit={step_limit} total_seen={batch_idx}/{num_batches}",
+                    )
+                    break
                 if getattr(trainer, "train_log_interval", 0) > 0 and batch_idx % trainer.train_log_interval == 0:
                     trainer.log_train_metrics(
                         {
@@ -735,6 +754,11 @@ class Prompt2GuardMethod(ContinualMethod):
                 num_batches=num_batches,
                 started_at=epoch_started_at,
             )
+            self._log_stage(
+                trainer,
+                f"fit_task epoch_end epoch={epoch + 1}/{epochs} loss={total_loss / max(total, 1):.4f} acc={correct / max(total, 1):.4f}",
+            )
+        self._log_stage(trainer, f"fit_task done task={getattr(task, 'name', task)}")
         return True
 
     def _cluster_features(self, features: torch.Tensor, n_clusters: int) -> torch.Tensor:
@@ -768,17 +792,28 @@ class Prompt2GuardMethod(ContinualMethod):
     def after_task(self, task: Any, train_loader: Any | None = None) -> None:
         if train_loader is None:
             return
+        self._log_stage(
+            self,
+            f"after_task start task={getattr(task, 'name', task)} task_index={self.current_task_index} stage=extract_features",
+        )
         all_features: list[torch.Tensor] = []
         real_features: list[torch.Tensor] = []
         fake_features: list[torch.Tensor] = []
         self.eval()
-        for batch in train_loader:
+        total_batches = len(train_loader)
+        for batch_idx, batch in enumerate(train_loader, start=1):
             x = batch["x"].to(self.device)
             y = batch["y"].long()
             z = self.network.extract_vector(x).detach().cpu()
             all_features.append(z)
             real_features.append(z[y == 0])
             fake_features.append(z[y == 1])
+            if batch_idx == 1 or batch_idx == total_batches or batch_idx % 50 == 0:
+                self._log_stage(
+                    self,
+                    f"after_task extracting_features progress={batch_idx}/{total_batches} task_index={self.current_task_index}",
+                )
+        self._log_stage(self, f"after_task feature_collection_done task_index={self.current_task_index} stage=cluster")
         all_z = torch.cat(all_features, dim=0) if all_features else torch.empty(0, self.network.feature_dim)
         real_z = torch.cat(real_features, dim=0) if real_features else all_z
         fake_z = torch.cat(fake_features, dim=0) if fake_features else all_z
@@ -787,11 +822,13 @@ class Prompt2GuardMethod(ContinualMethod):
         if fake_z.numel() == 0:
             fake_z = all_z
         idx = self.current_task_index
+        self._log_stage(self, f"after_task cluster_start task_index={idx} n_clusters={self.n_clusters} all_samples={all_z.shape[0]}")
         self._store_key("all_keys", idx, self._cluster_features(all_z, self.n_clusters))
         self._store_key("all_keys_one_cluster", idx, self._cluster_features(all_z, 1).squeeze(0))
         self._store_key("real_keys_one_cluster", idx, self._cluster_features(real_z, 1).squeeze(0))
         self._store_key("fake_keys_one_cluster", idx, self._cluster_features(fake_z, 1).squeeze(0))
         self.network.freeze_except(self.current_task_index)
+        self._log_stage(self, f"after_task done task_index={idx}")
 
     def _stack_keys(self, kind: str) -> torch.Tensor:
         tensors = []

@@ -122,8 +122,18 @@ class NullExperimentLogger:
         return None
 
 
+def compute_experiment_name(cfg: Mapping[str, Any], output_dir: Path, method_name: str) -> str:
+    logging_cfg = cfg.get("logging", {}) or {}
+    if not isinstance(logging_cfg, Mapping):
+        logging_cfg = {}
+    raw = dict(logging_cfg)
+    base_experiment_name = str(raw.get("experiment_name") or raw.get("name") or _default_experiment_base_name(cfg, output_dir, method_name))
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    return f"{base_experiment_name}-{timestamp}"
+
+
 class SwanLabExperimentLogger:
-    def __init__(self, cfg: Mapping[str, Any], output_dir: Path, method_name: str) -> None:
+    def __init__(self, cfg: Mapping[str, Any], output_dir: Path, method_name: str, *, experiment_name: str | None = None) -> None:
         logging_cfg = cfg.get("logging", {}) or {}
         if not isinstance(logging_cfg, Mapping):
             raise TypeError("logging config must be a mapping")
@@ -136,9 +146,7 @@ class SwanLabExperimentLogger:
                 "Install project dependencies or set logging.backend=none to disable experiment logging."
             ) from exc
 
-        base_experiment_name = str(raw.get("experiment_name") or raw.get("name") or _default_experiment_base_name(cfg, output_dir, method_name))
-        timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S-%f")[:-3]
-        experiment_name = f"{base_experiment_name}-{timestamp}"
+        experiment_name = experiment_name or compute_experiment_name(cfg, output_dir, method_name)
         kwargs: dict[str, Any] = {
             "project": raw.get("project", "CAIDBench"),
             "experiment_name": experiment_name,
@@ -186,7 +194,7 @@ class SwanLabExperimentLogger:
             self._swanlab.finish()
 
 
-def build_experiment_logger(cfg: Mapping[str, Any], output_dir: Path, method_name: str):
+def build_experiment_logger(cfg: Mapping[str, Any], output_dir: Path, method_name: str, *, experiment_name: str | None = None):
     logging_cfg = cfg.get("logging", {})
     if logging_cfg is False:
         return NullExperimentLogger()
@@ -198,4 +206,4 @@ def build_experiment_logger(cfg: Mapping[str, Any], output_dir: Path, method_nam
         return NullExperimentLogger()
     if backend != "swanlab":
         raise ValueError(f"Unsupported logging backend: {backend}")
-    return SwanLabExperimentLogger(cfg, output_dir, method_name)
+    return SwanLabExperimentLogger(cfg, output_dir, method_name, experiment_name=experiment_name)

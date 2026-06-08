@@ -15,8 +15,8 @@ from ..data.scenario import ContinualScenario, TaskSpec
 from ..evaluation import ContinualMetricMatrix, summarize_logits
 from ..methods.base import build_optimizer
 from ..registry import build_method
-from ..utils.checkpoint import save_checkpoint
-from ..utils.experiment import build_experiment_logger
+from ..utils.checkpoint import load_checkpoint, save_checkpoint
+from ..utils.experiment import build_experiment_logger, compute_experiment_name
 from ..utils.logging import get_logger
 from ..utils.seed import seed_everything
 from ..utils.tensor import move_to_device
@@ -47,8 +47,7 @@ class Trainer:
             cfg = load_config(cfg)
         self.cfg = cfg
         seed_everything(int(cfg.get("seed", 0)))
-        self.output_dir = Path(cfg.get("output_dir", "outputs/caidbench_run"))
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        base_output_dir = Path(cfg.get("output_dir", "outputs/caidbench_run"))
         self.logger = get_logger("caidbench")
         device_cfg = str(cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
         self.device = torch.device(device_cfg if device_cfg != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -76,7 +75,13 @@ class Trainer:
         self.eval_records: list[dict[str, Any]] = []
         self.global_step = 0
         self._active_train_task_index: float | None = None
-        self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name))
+        experiment_name = compute_experiment_name(self.cfg, base_output_dir, str(method_name))
+        self.output_dir = base_output_dir / experiment_name
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name), experiment_name=experiment_name)
+        resume_from = cfg.get("resume_from")
+        if resume_from:
+            self._resume_from_checkpoint(resume_from)
 
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
         return build_optimizer(self.method.parameters() if params is None else params, self.optimizer_cfg)
@@ -410,6 +415,19 @@ class Trainer:
         }
         save_checkpoint(self.output_dir / f"task_{task_index}.pt", **payload)
         save_checkpoint(self.output_dir / "last.pt", **payload)
+        if task_index == 0:
+            save_checkpoint(self.output_dir / "base.pt", **payload)
+
+    def _resume_from_checkpoint(self, path: str | Path) -> None:
+        ckpt = load_checkpoint(path, map_location=self.device)
+        result = self.method.load_state_dict(ckpt["model"], strict=False)
+        if result.missing_keys:
+            self.logger.info("resume_from: missing keys %s", result.missing_keys)
+        if result.unexpected_keys:
+            self.logger.info("resume_from: unexpected keys %s", result.unexpected_keys)
+        self.method.load_auxiliary_state_dict(ckpt.get("auxiliary"))
+        self.global_step = int(ckpt.get("global_step", 0))
+        self.logger.info("resume_from: loaded checkpoint %s (task_index=%s, global_step=%s)", path, ckpt.get("task_index"), self.global_step)
 
     def _write_outputs(self) -> dict[str, Any]:
         tables = self.metric_matrix.to_tables()

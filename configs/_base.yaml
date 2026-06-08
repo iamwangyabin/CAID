@@ -1,6 +1,7 @@
 seed: 0
 device: auto
-output_dir: outputs/caidbench
+output_dir: outputs
+resume_from: null
 
 logging:
   backend: swanlab

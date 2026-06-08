@@ -381,6 +381,32 @@ class SliNet(nn.Module):
             text_f = text_f.reshape(batch_size * 2, prompt_count, -1)
         return text_f
 
+    def _encode_text_prompts(self, text_prompts: torch.Tensor) -> torch.Tensor:
+        if self.text_x is None or self.len_prompts is None:
+            raise RuntimeError("generate_prompts_from_input must run before _encode_text_prompts.")
+
+        prompt_count = int(text_prompts.shape[0])
+        context_len = int(self.clip_model.positional_embedding.shape[0])
+        max_prompt_count = context_len - int(self.len_prompts.max().item()) - 1
+        if prompt_count <= max_prompt_count:
+            return F.normalize(self.text_encoder(text_prompts), dim=-1)
+
+        if max_prompt_count < 1:
+            raise ValueError(
+                "Prompt2Guard cannot fit even one inserted prompt token into the CLIP text context. "
+                "Shorten the text template or use fewer object/task prompts."
+            )
+
+        # Prefer task-aligned chunks so we keep whole K-prompt blocks together when possible.
+        chunk_count = max_prompt_count
+        if self.K > 0:
+            aligned = max_prompt_count - (max_prompt_count % self.K)
+            if aligned > 0:
+                chunk_count = aligned
+
+        encoded = [F.normalize(self.text_encoder(chunk), dim=-1) for chunk in text_prompts.split(chunk_count, dim=0)]
+        return torch.cat(encoded, dim=1)
+
     def image_encoder(self, image: torch.Tensor, image_prompt: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         if self.visual_mask is None:
             self.define_mask(int(image_prompt.shape[0] if image_prompt.dim() == 2 else image_prompt.shape[1]))
@@ -466,7 +492,7 @@ class SliNet(nn.Module):
         img_prompts = torch.cat([learner.img_prompt for learner in self.prompt_learner], dim=0)
         text_prompts = torch.cat([learner.text_prompt for learner in self.prompt_learner], dim=0)
         self.generate_prompts_from_input(object_labels, batch_size=image.shape[0])
-        text_f = F.normalize(self.text_encoder(text_prompts), dim=-1)
+        text_f = self._encode_text_prompts(text_prompts)
         img_f, image_features = self.image_encoder(image, img_prompts)
         img_f = F.normalize(img_f, dim=-1)
 

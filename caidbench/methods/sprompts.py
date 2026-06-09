@@ -11,7 +11,7 @@ from sklearn.cluster import KMeans
 
 from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, build_optimizer
-from ..utils.logging import get_logger
+from ..utils.logging import format_log_value, get_logger
 
 
 def _insert_prompt_tokens(x: torch.Tensor, prompt_tokens: torch.Tensor | None, num_prefix_tokens: int = 1) -> torch.Tensor:
@@ -434,12 +434,16 @@ class SPromptsMethod(ContinualMethod):
         num_batches = len(train_loader)
         train_log_interval = int(getattr(trainer, "train_log_interval", 0) or 0)
         task_label = getattr(task, "name", task)
+        formatted_task_label = format_log_value(task_label)
         self._log_stage(
-            f"fit_task start task={task_label} task_index={getattr(task, 'task_id', self.current_task_id)} epochs={epochs}",
+            f"fit_task start task={formatted_task_label} task_index={getattr(task, 'task_id', self.current_task_id)} epochs={epochs}",
             getattr(trainer, "logger", None),
         )
         for epoch in range(epochs):
-            self._log_stage(f"fit_task epoch_begin epoch={epoch + 1}/{epochs} task={task_label}", getattr(trainer, "logger", None))
+            self._log_stage(
+                f"fit_task epoch_begin epoch={epoch + 1}/{epochs} task={formatted_task_label}",
+                getattr(trainer, "logger", None),
+            )
             epoch_started_at = time.monotonic()
             totals: dict[str, float] = {}
             n = 0
@@ -485,7 +489,7 @@ class SPromptsMethod(ContinualMethod):
                 )
             if scheduler is not None:
                 scheduler.step()
-        self._log_stage(f"fit_task done task={task_label}", getattr(trainer, "logger", None))
+        self._log_stage(f"fit_task done task={formatted_task_label}", getattr(trainer, "logger", None))
         return True
 
     def _cluster_features(self, features: torch.Tensor) -> torch.Tensor:
@@ -521,7 +525,9 @@ class SPromptsMethod(ContinualMethod):
         self.eval()
         total_batches = len(train_loader)
         task_label = getattr(task, "name", task)
-        self._log_stage(f"after_task start task={task_label} task_index={self.current_task_id} stage=extract_features")
+        self._log_stage(
+            f"after_task start task={format_log_value(task_label)} task_index={self.current_task_id} stage=extract_features"
+        )
         features = []
         for batch_idx, batch in enumerate(train_loader, start=1):
             x = batch["x"].to(self.device)

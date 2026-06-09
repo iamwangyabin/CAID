@@ -55,6 +55,7 @@ def main() -> None:
                 "eval/after_task": checkpoint_task_index,
             }
         )
+        trainer._log_eval_console_table(eval_rows, eval_payload)
         trainer._log_eval_table(eval_rows, step=checkpoint_task_index)
         trainer.log_metrics(eval_payload, step=checkpoint_task_index)
         summary = trainer._write_outputs()

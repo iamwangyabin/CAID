@@ -17,6 +17,7 @@ from caidbench.engine import Trainer
 from caidbench.engine.trainer import _format_duration
 from caidbench.models.backbones import build_backbone
 from caidbench.registry import list_methods
+from caidbench.utils.logging import get_logger
 
 
 def write_aid_arrow_dataset(root: Path, rows: list[dict], payload_column: str) -> Path:
@@ -164,6 +165,66 @@ def test_train_logging_uses_step_instead_of_batch(caplog):
     assert msg.count("step=") == 1
     assert "step=50/11252" in msg
     assert "step=123" not in msg
+
+
+def test_default_logger_does_not_propagate_to_root():
+    logger = get_logger("caidbench.test.no_propagate")
+    assert logger.propagate is False
+
+
+def test_eval_console_logging_uses_table(caplog):
+    trainer = Trainer.__new__(Trainer)
+    trainer.logger = logging.getLogger("caidbench.test.eval_table")
+    trainer.logger.setLevel(logging.INFO)
+    records = [
+        {
+            "after_task": 1,
+            "after_task_name": "task 1",
+            "eval_task": 0,
+            "eval_task_name": "task 0",
+            "num_samples": 2,
+            "acc": 0.6,
+            "auc": 0.7,
+            "ap": 0.65,
+            "f1": 0.55,
+        },
+        {
+            "after_task": 1,
+            "after_task_name": "task 1",
+            "eval_task": 1,
+            "eval_task_name": "task 1",
+            "num_samples": 3,
+            "acc": 0.8,
+            "auc": 0.9,
+            "ap": 0.85,
+            "f1": 0.75,
+        },
+    ]
+    payload = {
+        "eval/after_task": 1,
+        "eval/average_accuracy": 0.7,
+        "eval/average_auc": 0.8,
+        "eval/average_ap": 0.75,
+        "eval/average_f1": 0.65,
+        "eval/official_weighted_accuracy": 0.72,
+        "eval/official_weighted_auc": 0.81,
+        "eval/official_weighted_ap": 0.76,
+        "eval/official_weighted_f1": 0.66,
+    }
+
+    with caplog.at_level(logging.INFO, logger="caidbench.test.eval_table"):
+        trainer._log_eval_console_table(records, payload)
+
+    assert len(caplog.records) == 1
+    msg = caplog.records[-1].getMessage()
+    assert 'task="task 1"' in msg
+    assert "seen_tasks=2" in msg
+    assert "on_task  task" in msg
+    assert "task 0" in msg
+    assert "0.6000" in msg
+    assert "mean" in msg
+    assert "weighted" in msg
+    assert "on_task=" not in msg
 
 
 def test_finetune_smoke(tmp_path):

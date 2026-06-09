@@ -17,7 +17,7 @@ from ..methods.base import build_optimizer
 from ..registry import build_method
 from ..utils.checkpoint import load_checkpoint, save_checkpoint
 from ..utils.experiment import build_experiment_logger, compute_experiment_name
-from ..utils.logging import get_logger
+from ..utils.logging import format_log_value, get_logger
 from ..utils.seed import seed_everything
 from ..utils.tensor import move_to_device
 
@@ -192,7 +192,7 @@ class Trainer:
         task_index = payload.get("train/task_index", self._active_train_task_index)
         parts = ["train"]
         if task_name is not None:
-            parts.append(f"task={task_name}")
+            parts.append(f"task={format_log_value(task_name)}")
         elif task_index is not None:
             parts.append(f"task_index={int(float(task_index))}")
         if phase:
@@ -335,15 +335,6 @@ class Trainer:
                     test_loader = self.dataloader(j, "test", shuffle=False)
                     metrics = self.evaluate_loader(test_loader)
                     self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"], metrics["ap"], metrics["f1"])
-                    self.logger.info(
-                        "eval after_task=%d on_task=%d acc=%.4f auc=%.4f ap=%.4f f1=%.4f",
-                        i,
-                        j,
-                        metrics["acc"],
-                        metrics["auc"],
-                        metrics["ap"],
-                        metrics["f1"],
-                    )
                     record = {
                         "after_task": i,
                         "after_task_name": task.name,
@@ -371,6 +362,7 @@ class Trainer:
                         "eval/after_task": i,
                     }
                 )
+                self._log_eval_console_table(eval_rows, eval_payload)
                 self._log_eval_table(eval_rows, step=i)
                 self.log_metrics(eval_payload, step=i)
                 self._save_intermediate(i)
@@ -457,6 +449,79 @@ class Trainer:
             json.dump(summary, f, indent=2, ensure_ascii=False)
         self._log_summary_tables(summary)
         return summary
+
+    @staticmethod
+    def _format_console_metric(value: Any) -> str:
+        try:
+            value_float = float(value)
+        except (TypeError, ValueError):
+            return ""
+        return "" if np.isnan(value_float) else f"{value_float:.4f}"
+
+    @staticmethod
+    def _format_console_table(headers: list[str], rows: list[list[Any]], *, right_align: set[str] | None = None) -> str:
+        right_align = right_align or set()
+        str_rows = [[str(value) for value in row] for row in rows]
+        widths = [
+            max(len(headers[col]), *(len(row[col]) for row in str_rows)) if str_rows else len(headers[col])
+            for col in range(len(headers))
+        ]
+
+        def format_row(row: list[str]) -> str:
+            cells = []
+            for header, value, width in zip(headers, row, widths):
+                cells.append(value.rjust(width) if header in right_align else value.ljust(width))
+            return "  ".join(cells)
+
+        separator = "  ".join("-" * width for width in widths)
+        return "\n".join([format_row(headers), separator, *(format_row(row) for row in str_rows)])
+
+    def _log_eval_console_table(self, records: list[Mapping[str, Any]], payload: Mapping[str, Any]) -> None:
+        if not records:
+            return
+        num_samples = sum(int(record.get("num_samples", 0) or 0) for record in records)
+        headers = ["on_task", "task", "n", "acc", "auc", "ap", "f1"]
+        rows: list[list[Any]] = [
+            [
+                int(record["eval_task"]),
+                record["eval_task_name"],
+                int(record.get("num_samples", 0) or 0),
+                self._format_console_metric(record.get("acc")),
+                self._format_console_metric(record.get("auc")),
+                self._format_console_metric(record.get("ap")),
+                self._format_console_metric(record.get("f1")),
+            ]
+            for record in records
+        ]
+        rows.extend(
+            [
+                [
+                    "mean",
+                    "-",
+                    num_samples,
+                    self._format_console_metric(payload.get("eval/average_accuracy")),
+                    self._format_console_metric(payload.get("eval/average_auc")),
+                    self._format_console_metric(payload.get("eval/average_ap")),
+                    self._format_console_metric(payload.get("eval/average_f1")),
+                ],
+                [
+                    "weighted",
+                    "-",
+                    num_samples,
+                    self._format_console_metric(payload.get("eval/official_weighted_accuracy")),
+                    self._format_console_metric(payload.get("eval/official_weighted_auc")),
+                    self._format_console_metric(payload.get("eval/official_weighted_ap")),
+                    self._format_console_metric(payload.get("eval/official_weighted_f1")),
+                ],
+            ]
+        )
+        self.logger.info(
+            "eval after_task=%d task=%s seen_tasks=%d\n%s",
+            int(payload.get("eval/after_task", records[-1].get("after_task", 0))),
+            format_log_value(records[-1].get("after_task_name", "")),
+            len(records),
+            self._format_console_table(headers, rows, right_align={"on_task", "n", "acc", "auc", "ap", "f1"}),
+        )
 
     @staticmethod
     def _table_value(value: Any) -> str | int | float:

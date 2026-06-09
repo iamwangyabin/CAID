@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Sequence
 
 import numpy as np
@@ -10,6 +11,7 @@ from sklearn.cluster import KMeans
 
 from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, build_optimizer
+from ..utils.logging import get_logger
 
 
 def _insert_prompt_tokens(x: torch.Tensor, prompt_tokens: torch.Tensor | None, num_prefix_tokens: int = 1) -> torch.Tensor:
@@ -327,6 +329,10 @@ class SPromptsMethod(ContinualMethod):
             return None
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=int(epochs))
 
+    def _log_stage(self, message: str, logger: Any | None = None) -> None:
+        logger = logger or get_logger("caidbench")
+        logger.info("[SPrompts] %s", message)
+
     def _selector_features(self, z: torch.Tensor) -> torch.Tensor:
         z = z.float()
         return F.normalize(z, dim=-1) if self.normalize_features else z
@@ -425,11 +431,19 @@ class SPromptsMethod(ContinualMethod):
         optimizer = self.configure_optimizer(getattr(trainer, "optimizer_cfg", None))
         epochs = self._task_epochs(trainer)
         scheduler = self._configure_official_scheduler(optimizer, epochs)
+        num_batches = len(train_loader)
+        train_log_interval = int(getattr(trainer, "train_log_interval", 0) or 0)
+        task_label = getattr(task, "name", task)
+        self._log_stage(
+            f"fit_task start task={task_label} task_index={getattr(task, 'task_id', self.current_task_id)} epochs={epochs}",
+            getattr(trainer, "logger", None),
+        )
         for epoch in range(epochs):
-            epoch_lr = float(optimizer.param_groups[0]["lr"])
+            self._log_stage(f"fit_task epoch_begin epoch={epoch + 1}/{epochs} task={task_label}", getattr(trainer, "logger", None))
+            epoch_started_at = time.monotonic()
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            for batch_idx, batch in enumerate(train_loader, start=1):
                 out = self.observe(batch, task)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()
@@ -440,11 +454,38 @@ class SPromptsMethod(ContinualMethod):
                 for key, value in self.train_metrics(out).items():
                     totals[key] = totals.get(key, 0.0) + float(value)
                 n += 1
+                if train_log_interval > 0 and batch_idx % train_log_interval == 0:
+                    metrics = {k: v / max(n, 1) for k, v in totals.items()}
+                    trainer.log_train_metrics(
+                        metrics,
+                        task=task,
+                        epoch=epoch + 1,
+                        epochs=epochs,
+                        optimizer=optimizer,
+                        batch_idx=batch_idx,
+                        num_batches=num_batches,
+                        started_at=epoch_started_at,
+                    )
             if totals:
                 metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                trainer.log_train_metrics(metrics, task=task, epoch=epoch + 1, epochs=epochs, lr=epoch_lr)
+                trainer.log_train_metrics(
+                    metrics,
+                    task=task,
+                    epoch=epoch + 1,
+                    epochs=epochs,
+                    optimizer=optimizer,
+                    batch_idx=n,
+                    num_batches=num_batches,
+                    started_at=epoch_started_at,
+                )
+                self._log_stage(
+                    f"fit_task epoch_end epoch={epoch + 1}/{epochs} loss={metrics.get('loss', 0.0):.4f} "
+                    f"lr={float(optimizer.param_groups[0]['lr']):.6g}",
+                    getattr(trainer, "logger", None),
+                )
             if scheduler is not None:
                 scheduler.step()
+        self._log_stage(f"fit_task done task={task_label}", getattr(trainer, "logger", None))
         return True
 
     def _cluster_features(self, features: torch.Tensor) -> torch.Tensor:
@@ -478,13 +519,27 @@ class SPromptsMethod(ContinualMethod):
             return None
         was_training = self.training
         self.eval()
+        total_batches = len(train_loader)
+        task_label = getattr(task, "name", task)
+        self._log_stage(f"after_task start task={task_label} task_index={self.current_task_id} stage=extract_features")
         features = []
-        for batch in train_loader:
+        for batch_idx, batch in enumerate(train_loader, start=1):
             x = batch["x"].to(self.device)
             features.append(self.image_encoder(x, None).detach().cpu())
+            if batch_idx == 1 or batch_idx == total_batches or batch_idx % 50 == 0:
+                self._log_stage(f"after_task extracting_features progress={batch_idx}/{total_batches} task_index={self.current_task_id}")
+        self._log_stage(f"after_task feature_collection_done task_index={self.current_task_id} stage=cluster")
         if features:
-            self._store_centers(self.current_prompt_key, self._cluster_features(torch.cat(features, dim=0)))
+            all_features = torch.cat(features, dim=0)
+            self._log_stage(
+                f"after_task cluster_start task_index={self.current_task_id} n_clusters={self.num_centers} "
+                f"all_samples={all_features.shape[0]}",
+            )
+            self._store_centers(self.current_prompt_key, self._cluster_features(all_features))
+        else:
+            self._log_stage(f"after_task cluster_start task_index={self.current_task_id} n_clusters={self.num_centers} all_samples=0")
         if was_training:
             self.train()
         self._freeze_except_current()
+        self._log_stage(f"after_task done task_index={self.current_task_id}")
         return None

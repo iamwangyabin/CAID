@@ -9,7 +9,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-outputs/soyo_cddb_official_compatible/${RUN_ID}}"
 SUMMARY_FILE="${SUMMARY_FILE:-${OUTPUT_DIR}/soyo_run_${RUN_ID}.tsv}"
 LOG_DIR="${LOG_DIR:-${OUTPUT_DIR}/logs}"
 
-# Defaults track the released SOYO-ViT path exposed by configs/soyo.yaml.
+# Defaults track the released SOYO-ViT path exposed by configs/reproduce/soyo.yaml.
 LOG_BACKEND="${LOG_BACKEND:-swanlab}"
 LOG_MODE="${LOG_MODE:-cloud}"
 DEVICE="${DEVICE:-auto}"
@@ -65,11 +65,11 @@ echo "[soyo] run_id=${RUN_ID}"
 echo "[soyo] output_dir=${OUTPUT_DIR}"
 echo "[soyo] summary=${SUMMARY_FILE}"
 echo "[soyo] log_dir=${LOG_DIR}"
-echo "[soyo] config=configs/soyo.yaml"
+echo "[soyo] config=configs/reproduce/soyo.yaml"
 echo "[soyo] overrides=${BASE_OVERRIDES[*]} ${EXTRA_OVERRIDES[*]-}"
 echo "[soyo] note: official SOYO-CLIP text-prompt path is not implemented; this runs SOYO-ViT."
 
-CONFIGS="configs/soyo.yaml" \
+CONFIGS="configs/reproduce/soyo.yaml" \
 RUN_ID="$RUN_ID" \
 SUMMARY_FILE="$SUMMARY_FILE" \
 LOG_DIR="$LOG_DIR" \

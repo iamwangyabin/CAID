@@ -1,0 +1,29 @@
+_base_: ../_base.yaml
+output_dir: outputs/saido_cddb_hard
+method:
+  name: saido
+  lora_rank: 8
+  lora_alpha: 16.0
+  freeze_backbone: true
+  importance_quantile: 0.75
+  core_grad_scale: 0.1
+  noncore_grad_scale: 1.0
+  contrast_weight: 0.0
+  scene_prompt_weight: 1.0
+  scene_temperature: 0.07
+  idom_projection: true
+  old_grad_scale: 1.0
+  detector_cfg:
+    backbone:
+      type: clip_vision
+      backend: open_clip
+      model_name: ViT-L-14
+      pretrained: openai
+      freeze: true
+      out_dim: null
+train:
+  epochs: 10
+  optimizer:
+    type: sgd
+    lr: 0.01
+    momentum: 0.9

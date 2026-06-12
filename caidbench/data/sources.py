@@ -17,10 +17,10 @@ class DataSource:
 
 def build_data_source(cfg: dict[str, Any]) -> DataSource:
     backend = str(cfg.get("backend", cfg.get("type", "aid_arrow"))).lower()
-    if backend in {"stitched_arrow", "stitched", "stitched_datasets"}:
-        from .stitched_arrow import StitchedArrowDataSource
+    if backend in {"caidbench", "caidbench_arrow", "caidbench_index", "caidbench_datasets"}:
+        from .caidbench_arrow import CAIDBenchArrowDataSource
 
-        return StitchedArrowDataSource.from_config(cfg)
+        return CAIDBenchArrowDataSource.from_config(cfg)
     if backend in {"arrow", "hf_arrow", "huggingface", "aid", "aid_arrow", "aid_dataset"}:
         from .arrow import ArrowDataSource
 

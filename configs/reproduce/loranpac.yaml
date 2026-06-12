@@ -1,0 +1,62 @@
+_base_: ../_base.yaml
+seed: 1993
+output_dir: outputs/loranpac_cddb_hard
+scenario:
+  transform:
+    train:
+      trsf:
+        - _target_: caidbench.data.transforms.RandomResizedCrop
+          size: 224
+          scale: [0.05, 1.0]
+          ratio: [0.75, 1.3333333333333333]
+        - _target_: caidbench.data.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: caidbench.data.transforms.ToTensor
+    test:
+      trsf:
+        - _target_: caidbench.data.transforms.Resize
+          size: 256
+          interpolation: bicubic
+        - _target_: caidbench.data.transforms.CenterCrop
+          size: 224
+        - _target_: caidbench.data.transforms.ToTensor
+train:
+  epochs: 20
+  batch_size: 48
+  num_workers: 16
+  optimizer:
+    type: sgd
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0005
+method:
+  name: loranpac
+  num_classes: 2
+  detector_cfg:
+    num_classes: 2
+    backbone:
+      type: timm
+      name: vit_base_patch16_224
+      pretrained: true
+      out_dim: null
+  tuned_epoch: 20
+  init_lr: 0.01
+  weight_decay: 0.0005
+  min_lr: 0.0
+  optimizer: sgd
+  ffn_num: 64
+  vpt_type: shallow
+  prompt_token_num: 5
+  E: 100000
+  rank: 20000
+  truncate_percent: 25
+  ridge: 0
+  tsvd_batch_size: 1000
+  tsvd_update_threshold: 10000
+  use_test_transform_for_tsvd: true
+  use_RE: true
+  use_relu: true
+  coslinear: false
+  fixed_memory: false
+  shuffle: true
+  use_simplecil: false

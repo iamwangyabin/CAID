@@ -1,0 +1,29 @@
+_base_: ../_base.yaml
+output_dir: outputs/dfil_cddb_hard
+scenario:
+  transform:
+    trsf:
+      - _target_: caidbench.data.transforms.SquareResize
+        size: 299
+      - _target_: caidbench.data.transforms.ToTensor
+      - _target_: caidbench.data.transforms.Normalize
+        mean: [0.5, 0.5, 0.5]
+        std: [0.5, 0.5, 0.5]
+train:
+  lr_scheduler: step
+  step_size: 5
+  gamma: 0.5
+  optimizer:
+    type: adam
+    lr: 0.0005
+method:
+  name: dfil
+  memory_size: 1500
+  memory_batch_size: 32
+  supcon_weight: 0.1
+  kd_alpha: 0.3
+  feature_kd_weight: 0.01
+  temperature: 20.0
+  hard_ratio: 0.5
+  center_samples_per_class: 125
+  hard_samples_per_class: 125

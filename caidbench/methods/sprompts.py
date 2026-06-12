@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, build_optimizer
+from .base import ContinualMethod, batch_to_device, build_optimizer, effective_train_batches, iter_limited_train_batches
 from ..utils.logging import format_log_value, get_logger
 
 
@@ -431,7 +431,7 @@ class SPromptsMethod(ContinualMethod):
         optimizer = self.configure_optimizer(getattr(trainer, "optimizer_cfg", None))
         epochs = self._task_epochs(trainer)
         scheduler = self._configure_official_scheduler(optimizer, epochs)
-        num_batches = len(train_loader)
+        num_batches = effective_train_batches(trainer, train_loader)
         train_log_interval = int(getattr(trainer, "train_log_interval", 0) or 0)
         task_label = getattr(task, "name", task)
         formatted_task_label = format_log_value(task_label)
@@ -447,7 +447,7 @@ class SPromptsMethod(ContinualMethod):
             epoch_started_at = time.monotonic()
             totals: dict[str, float] = {}
             n = 0
-            for batch_idx, batch in enumerate(train_loader, start=1):
+            for batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self.observe(batch, task)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()

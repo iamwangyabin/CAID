@@ -8,7 +8,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -205,7 +205,7 @@ class DUCTMethod(ContinualMethod):
             epoch_lr = float(optimizer.param_groups[0]["lr"])
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self.observe(batch, task)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()
@@ -252,7 +252,7 @@ class DUCTMethod(ContinualMethod):
         self.train()
         active = self._current_slice()
         for _epoch in range(self.retrain_epochs):
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 batch = batch_to_device(batch, self.device)
                 z = self.detector.extract_features(batch["x"])
                 logits = head(z)[:, active]

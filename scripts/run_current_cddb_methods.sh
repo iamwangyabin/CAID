@@ -9,10 +9,10 @@ SUMMARY_FILE="${SUMMARY_FILE:-outputs/current_cddb_method_runs_${RUN_ID}.tsv}"
 NUM_WORKERS="${NUM_WORKERS:-16}"
 
 CONFIGS=(
-  configs/duct.yaml
-  configs/soyo.yaml
-  configs/loranpac.yaml
-  configs/dce.yaml
+  configs/reproduce/duct.yaml
+  configs/reproduce/soyo.yaml
+  configs/reproduce/loranpac.yaml
+  configs/reproduce/dce.yaml
 )
 
 echo "[current] root=${ROOT_DIR}"

@@ -10,7 +10,7 @@ from torch import nn
 from ..data.loader import build_dataloader
 from ..models.ekfn import ExpertKnowledgeFusionNetwork
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, freeze_module
+from .base import ContinualMethod, batch_to_device, freeze_module, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -210,7 +210,7 @@ class E3Method(ContinualMethod):
             total_loss = 0.0
             total_acc = 0.0
             total_batches = 0
-            for batch in loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, loader):
                 batch = batch_to_device(batch, self.device)
                 out = model(batch["x"])
                 loss = self._bce_loss(out["logits"], batch["y"])
@@ -321,7 +321,7 @@ class E3Method(ContinualMethod):
             total_loss = 0.0
             total_acc = 0.0
             total_batches = 0
-            for batch in loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, loader):
                 batch = batch_to_device(batch, self.device)
                 embeddings = self._expert_embeddings(batch["x"])
                 logits = self.ekfn(embeddings)

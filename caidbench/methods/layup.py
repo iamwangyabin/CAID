@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from ..data.loader import build_dataloader
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, freeze_module
+from .base import ContinualMethod, batch_to_device, freeze_module, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -484,7 +484,7 @@ class LayUPMethod(FrozenFeatureMethod):
             total_correct = 0
             total = 0
             batches = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 batch = batch_to_device(batch, self.device)
                 z = self.detector.extract_features(batch["x"])
                 logits = 30.0 * head(z)

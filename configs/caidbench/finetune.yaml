@@ -1,0 +1,4 @@
+_base_: finetune_base.yaml
+output_dir: outputs/caidbench/base
+method:
+  name: finetune

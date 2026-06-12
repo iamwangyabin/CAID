@@ -8,7 +8,7 @@ from torch import nn
 
 from ..losses import feature_distillation_loss, kd_loss
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches
 
 
 @register_method("hdp")
@@ -271,7 +271,7 @@ class HDPMethod(ContinualMethod):
         for epoch in range(trainer.max_epochs):
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self.observe(batch, task)
                 loss = out["loss"]
                 optimizer.zero_grad(set_to_none=True)

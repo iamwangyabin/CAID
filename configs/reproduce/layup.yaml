@@ -1,0 +1,58 @@
+_base_: ../_base.yaml
+seed: 1993
+output_dir: outputs/layup_cddb_hard
+scenario:
+  transform:
+    train:
+      trsf:
+        - _target_: caidbench.data.transforms.RandomResizedCrop
+          size: 224
+          scale: [0.7, 1.0]
+        - _target_: caidbench.data.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: caidbench.data.transforms.ColorJitter
+          brightness: 0.1
+          contrast: 0.1
+          saturation: 0.1
+          hue: 0.1
+        - _target_: caidbench.data.transforms.ToTensor
+    test:
+      trsf:
+        - _target_: caidbench.data.transforms.Resize
+          size: 224
+        - _target_: caidbench.data.transforms.CenterCrop
+          size: 224
+        - _target_: caidbench.data.transforms.ToTensor
+train:
+  epochs: 20
+  batch_size: 48
+  num_workers: 16
+  optimizer:
+    type: sgd
+    lr: 0.003
+    momentum: 0.9
+    weight_decay: 0.0005
+method:
+  name: layup
+  num_classes: 2
+  detector_cfg:
+    num_classes: 2
+    backbone:
+      type: timm
+      name: vit_base_patch16_224
+      pretrained: true
+  k: 6
+  finetune_method: adapter
+  finetune_epochs: 20
+  early_stopping: 5
+  lr: 0.003
+  weight_decay: 0.0005
+  adapter_bottleneck: 64
+  adapter_dropout: 0.1
+  adapter_scalar: 0.1
+  aug_normalize: false
+  token_pool: cls
+  use_test_transform_for_ridge: true
+  ridge_dtype: float32
+  ridge_splits: 4
+  ridge_candidates: [1.0e-4, 3.1622776601683795e-4, 1.0e-3, 3.1622776601683794e-3, 1.0e-2, 3.1622776601683795e-2, 1.0e-1, 3.1622776601683795e-1, 1.0, 3.1622776601683795, 10.0, 31.622776601683793, 100.0, 316.22776601683796, 1000.0, 1.0e-8]

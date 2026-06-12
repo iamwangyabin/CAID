@@ -36,8 +36,18 @@ caid-pack-dataset \
 Train a method:
 
 ```bash
-caid-train --config configs/dfil.yaml
+caid-train --config configs/reproduce/dfil.yaml
 ```
+
+Run the generated CAIDBench 90-task protocol:
+
+```bash
+caid-train --config configs/caidbench/finetune_90.yaml
+```
+
+Protocol files only define task order and filters. Dataset paths live in
+`scenario.data` inside the training config; see `configs/caidbench/README.md` and
+`protocols/README.md`.
 
 Training logs to SwanLab by default. Log in once before cloud runs:
 
@@ -131,7 +141,9 @@ caidbench/
   memory/       replay buffer and exemplar selectors
   models/       backbones, adapters, LoRA, EKFN, detector heads
   methods/      continual method implementations
-configs/        shared base config plus one YAML per method
+configs/        shared base, CAIDBench entry points, and reproduction configs
+  caidbench/    generated CAIDBench protocol experiment entry points
+  reproduce/    paper/original-result reproduction configs per method
 protocols/      task protocol YAMLs; the current slim set keeps CDDB-Hard Arrow
 docs/           compatibility and method-mapping notes
 tests/          smoke and packaging tests

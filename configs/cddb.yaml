@@ -1,7 +1,0 @@
-_base_: _base.yaml
-output_dir: outputs/cddb_baseline_cddb_hard
-method:
-  name: cddb
-  binary_loss: sum_b_log
-  memory_size: 1500
-  memory_batch_size: 32

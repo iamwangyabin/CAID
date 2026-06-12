@@ -1,0 +1,46 @@
+_base_: ../_base.yaml
+seed: 1993
+output_dir: outputs/soyo_cddb_hard
+train:
+  epochs: 50
+  batch_size: 128
+  num_workers: 16
+  optimizer:
+    type: sgd
+    lr: 0.001
+    momentum: 0.9
+    weight_decay: 0.0002
+method:
+  name: soyo
+  implementation: official
+  net_type: soyo_vit
+  num_classes: 2
+  detector_cfg:
+    num_classes: 2
+    backbone:
+      type: timm
+      name: vit_base_patch16_224
+      pretrained: true
+      out_dim: null
+  dataset: cddb
+  init_cls: 2
+  increment: 2
+  total_sessions: 5
+  task_name: [gaugan, biggan, wild, whichfaceisreal, san]
+  image_dim: 768
+  prompt_length: 10
+  hidden_dim: 16
+  soyo_dim: 768
+  gmm_components: 2
+  soyo_epoch: 30
+  soyo_lr: 0.1
+  soyo_weight_decay: 0.0002
+  resample_per_domain: 256
+  selector_batch_size: 128
+  normalize_selector_features: true
+  init_epoch: 50
+  init_lr: 0.001
+  init_weight_decay: 0.0002
+  epochs: 50
+  lr: 0.001
+  weight_decay: 0.0002

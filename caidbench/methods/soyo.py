@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import islice
 from typing import Any, Sequence
 
 import numpy as np
@@ -10,7 +11,7 @@ from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
+from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -90,7 +91,7 @@ def _run_minibatch_loop(
     for epoch in range(int(epochs)):
         totals: dict[str, float] = {}
         n = 0
-        for batch in train_loader:
+        for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
             out = method.observe(batch, task)
             loss = out["loss"]
             optimizer.zero_grad(set_to_none=True)
@@ -565,6 +566,7 @@ class SOYOMethod(DomainRoutedFeatureMethod):
             self.selector = SOYOSelector(self.feature_dim, self.total_sessions)
             self.domain_compression: list[GaussianMixture] = []
             self._known_classes = 0
+            self._debug_max_steps_per_epoch: int | None = None
             self.extra_cfg = dict(kwargs)
             self._freeze_official_except_current()
             return
@@ -662,6 +664,7 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         if self.implementation != "official":
             return super().fit_task(trainer, task, train_loader, val_loader)
         del val_loader
+        self._debug_max_steps_per_epoch = getattr(trainer, "debug_max_steps_per_epoch", None)
         epochs = _official_task_epochs(
             trainer,
             _task_id(task),
@@ -674,7 +677,7 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         for epoch in range(epochs):
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self._official_observe(batch)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()
@@ -738,7 +741,10 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         self.selector.train()
 
         for _epoch in range(max(self.soyo_epoch, 1)):
-            for batch in train_loader:
+            batches = enumerate(train_loader, start=1)
+            if self._debug_max_steps_per_epoch is not None:
+                batches = islice(batches, self._debug_max_steps_per_epoch)
+            for _batch_idx, batch in batches:
                 batch = batch_to_device(batch, self.device)
                 with torch.no_grad():
                     features = self.official_network.extract_vector(batch["x"]).float()

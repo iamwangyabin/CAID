@@ -12,7 +12,7 @@ from torch import nn
 
 from ..registry import register_method
 from ..utils.checkpoint import load_checkpoint
-from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
+from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module, iter_limited_train_batches
 
 
 @dataclass
@@ -477,7 +477,7 @@ class SURLIDMethod(ContinualMethod):
         for epoch in range(1, trainer.max_epochs + 1):
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self.observe(batch, task)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()

@@ -60,11 +60,11 @@ echo "[loranpac] run_id=${RUN_ID}"
 echo "[loranpac] output_dir=${OUTPUT_DIR}"
 echo "[loranpac] summary=${SUMMARY_FILE}"
 echo "[loranpac] log_dir=${LOG_DIR}"
-echo "[loranpac] config=configs/loranpac.yaml"
+echo "[loranpac] config=configs/reproduce/loranpac.yaml"
 echo "[loranpac] overrides=${BASE_OVERRIDES[*]} ${EXTRA_OVERRIDES[*]-}"
 echo "[loranpac] note: official-size E=100000 can be memory-heavy; set E/RANK lower only for debugging."
 
-CONFIGS="configs/loranpac.yaml" \
+CONFIGS="configs/reproduce/loranpac.yaml" \
 RUN_ID="$RUN_ID" \
 SUMMARY_FILE="$SUMMARY_FILE" \
 LOG_DIR="$LOG_DIR" \

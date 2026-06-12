@@ -1,0 +1,9 @@
+_base_: base.yaml
+
+output_dir: outputs/caidbench/finetune_90
+
+scenario:
+  protocol: protocols/caidbench/continual_90_protocol.yaml
+
+method:
+  name: finetune

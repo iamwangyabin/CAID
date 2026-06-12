@@ -11,6 +11,15 @@ from .protocol import apply_filter, load_protocol, task_split_specs
 from .sources import DataSource, build_data_source
 
 
+def _resolve_protocol_index_path(protocol_ref: Any, index_path: Any) -> str:
+    path = Path(str(index_path))
+    if path.is_absolute():
+        return str(path)
+    if isinstance(protocol_ref, (str, Path)):
+        return str(Path(protocol_ref).parent / path)
+    return str(path)
+
+
 @dataclass(frozen=True)
 class TaskSpec:
     task_id: int
@@ -57,8 +66,13 @@ class ContinualScenario:
             data_cfg = {k: v for k, v in scfg.items() if k not in {"protocol", "transform"}}
         if not data_cfg:
             raise ValueError("Config must define scenario.data with an AID Arrow dataset directory")
+        protocol_ref = scfg.get("protocol", {})
+        protocol = load_protocol(protocol_ref)
+        if "index_path" not in data_cfg and "index" not in data_cfg:
+            protocol_index = protocol.get("index_path", protocol.get("index"))
+            if protocol_index is not None:
+                data_cfg["index_path"] = _resolve_protocol_index_path(protocol_ref, protocol_index)
         source = build_data_source(data_cfg)
-        protocol = scfg.get("protocol", {})
         return cls(source=source, protocol=protocol, transform_cfg=transform_cfg)
 
     def _uniq(self, df: pd.DataFrame, col: str) -> tuple[str, ...]:

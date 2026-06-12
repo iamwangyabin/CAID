@@ -51,11 +51,11 @@ echo "[dce] run_id=${RUN_ID}"
 echo "[dce] output_dir=${OUTPUT_DIR}"
 echo "[dce] summary=${SUMMARY_FILE}"
 echo "[dce] log_dir=${LOG_DIR}"
-echo "[dce] config=configs/dce.yaml"
+echo "[dce] config=configs/reproduce/dce.yaml"
 echo "[dce] overrides=${BASE_OVERRIDES[*]} ${EXTRA_OVERRIDES[*]-}"
 echo "[dce] note: for paper-number reproduction, build the CDDB train split with the official Lain810/DCE utils/data.py::make_imb table."
 
-CONFIGS="configs/dce.yaml" \
+CONFIGS="configs/reproduce/dce.yaml" \
 RUN_ID="$RUN_ID" \
 SUMMARY_FILE="$SUMMARY_FILE" \
 LOG_DIR="$LOG_DIR" \

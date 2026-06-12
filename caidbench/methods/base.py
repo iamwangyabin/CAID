@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC
 import copy
+from itertools import islice
 from typing import Any, Iterable, Mapping
 
 import torch
@@ -37,6 +38,31 @@ def merge_batches(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
         else:
             out[k] = a[k]
     return out
+
+
+def effective_train_batches(trainer: Any, train_loader: Any) -> int:
+    fn = getattr(trainer, "effective_train_batches", None)
+    if callable(fn):
+        return int(fn(train_loader))
+    limit = getattr(trainer, "debug_max_steps_per_epoch", None)
+    if limit is not None:
+        limit_int = int(limit)
+        if limit_int > 0:
+            return min(len(train_loader), limit_int)
+    return len(train_loader)
+
+
+def iter_limited_train_batches(trainer: Any, train_loader: Any) -> Iterable[tuple[int, Any]]:
+    fn = getattr(trainer, "iter_train_batches", None)
+    if callable(fn):
+        return fn(train_loader)
+    batches = enumerate(train_loader, start=1)
+    limit = getattr(trainer, "debug_max_steps_per_epoch", None)
+    if limit is not None:
+        limit_int = int(limit)
+        if limit_int > 0:
+            return islice(batches, limit_int)
+    return batches
 
 
 def build_optimizer(params: Iterable[nn.Parameter], cfg: dict[str, Any] | None = None) -> torch.optim.Optimizer:

@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
+from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -89,7 +89,7 @@ def _run_minibatch_loop(
     for epoch in range(int(epochs)):
         totals: dict[str, float] = {}
         n = 0
-        for batch in train_loader:
+        for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
             out = method.observe(batch, task)
             loss = out["loss"]
             optimizer.zero_grad(set_to_none=True)

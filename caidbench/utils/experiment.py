@@ -58,8 +58,8 @@ def _protocol_dataset_name(protocol: Any) -> str | None:
         return "cddb_hard"
     if "cddb" in lower:
         return "cddb"
-    if "stitched" in lower:
-        return "stitched"
+    if "caidbench" in lower:
+        return "caidbench"
     for suffix in ("_arrow", "_incremental", "_protocol"):
         if stem.endswith(suffix):
             stem = stem[: -len(suffix)]
@@ -75,8 +75,8 @@ def _path_dataset_name(path: Any) -> str | None:
         return "cddb_hard"
     if "cddb" in lower:
         return "cddb"
-    if "stitched" in lower:
-        return "stitched"
+    if "caidbench" in lower:
+        return "caidbench"
     return _slug_part(name) or None
 
 

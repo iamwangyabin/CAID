@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from ..losses import feature_distillation_loss, kd_loss, supervised_contrastive_loss
 from ..memory import ReplayBuffer, central_and_hard_indices, dfil_official_indices, extract_feature_logit_table
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, merge_batches
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches, merge_batches
 
 
 @register_method("dfil")
@@ -90,7 +90,7 @@ class DFILMethod(ContinualMethod):
         for epoch in range(trainer.max_epochs):
             totals: dict[str, float] = {}
             n = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self.observe(batch, task)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()

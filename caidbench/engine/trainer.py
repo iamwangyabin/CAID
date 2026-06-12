@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from itertools import islice
 from typing import Any, Iterable, Mapping
 from pathlib import Path
 
@@ -34,6 +35,15 @@ def _format_duration(seconds: float) -> str:
     return f"{secs}s"
 
 
+def _optional_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "false"}:
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
 class Trainer:
     """Unified continual-detection trainer.
 
@@ -55,8 +65,13 @@ class Trainer:
         self.scenario = ContinualScenario.from_config(scfg)
         method_cfg = dict(cfg.get("method", {}))
         method_name = method_cfg.pop("name", cfg.get("method_name", "finetune"))
-        self.method = build_method(method_name, **method_cfg).to(self.device)
         train_cfg = cfg.get("train", {})
+        debug_step_limit = train_cfg.get(
+            "debug_max_steps_per_epoch",
+            cfg.get("debug_max_steps_per_epoch", method_cfg.get("debug_max_steps_per_epoch")),
+        )
+        self.debug_max_steps_per_epoch = _optional_positive_int(debug_step_limit)
+        self.method = build_method(method_name, **method_cfg).to(self.device)
         self.max_epochs = int(train_cfg.get("epochs", 1))
         self.batch_size = int(train_cfg.get("batch_size", 32))
         self.num_workers = int(train_cfg.get("num_workers", 0))
@@ -82,6 +97,18 @@ class Trainer:
         resume_from = cfg.get("resume_from")
         if resume_from:
             self._resume_from_checkpoint(resume_from)
+
+    def effective_train_batches(self, train_loader: Any) -> int:
+        num_batches = len(train_loader)
+        if self.debug_max_steps_per_epoch is None:
+            return num_batches
+        return min(num_batches, self.debug_max_steps_per_epoch)
+
+    def iter_train_batches(self, train_loader: Any) -> Iterable[tuple[int, Any]]:
+        batches = enumerate(train_loader, start=1)
+        if self.debug_max_steps_per_epoch is None:
+            return batches
+        return islice(batches, self.debug_max_steps_per_epoch)
 
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
         return build_optimizer(self.method.parameters() if params is None else params, self.optimizer_cfg)
@@ -232,12 +259,12 @@ class Trainer:
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
         optimizer = optimizer or method.configure_optimizer(self.optimizer_cfg)
-        num_batches = len(train_loader)
+        num_batches = self.effective_train_batches(train_loader)
         for epoch in range(self.max_epochs):
             totals: dict[str, float] = {}
             n = 0
             epoch_started_at = time.monotonic()
-            for batch_idx, batch in enumerate(train_loader, start=1):
+            for batch_idx, batch in self.iter_train_batches(train_loader):
                 batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
                 out = method.observe(batch, task)
                 loss = out["loss"]

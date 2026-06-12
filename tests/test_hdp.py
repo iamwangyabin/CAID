@@ -55,7 +55,7 @@ def test_hdp_generates_persistent_uap_pool_and_replays_pseudo_features():
 
 
 def test_hdp_default_config_matches_official_backbone_and_uap_hyperparams():
-    cfg = load_config("configs/hdp.yaml")
+    cfg = load_config("configs/reproduce/hdp.yaml")
 
     assert cfg["scenario"]["transform"]["train"]["trsf"][0]["size"] == 224
     assert cfg["scenario"]["transform"]["train"]["trsf"][-1]["mean"] == [0.5, 0.5, 0.5]

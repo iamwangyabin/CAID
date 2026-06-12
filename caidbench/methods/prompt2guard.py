@@ -4,6 +4,7 @@ import inspect
 import math
 import pickle
 import time
+from itertools import islice
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -713,13 +714,21 @@ class Prompt2GuardMethod(ContinualMethod):
         if logger is not None:
             logger.info("[Prompt2Guard] %s", message)
 
+    def _effective_step_limit(self, trainer: Any) -> int | None:
+        trainer_limit = getattr(trainer, "debug_max_steps_per_epoch", None)
+        value = trainer_limit if trainer_limit is not None else self.debug_max_steps_per_epoch
+        if value is None:
+            return None
+        value = int(value)
+        return value if value > 0 else None
+
     def fit_task(self, trainer: Any, task: Any, train_loader: Any, val_loader: Any | None = None) -> bool:
         self.train()
         optimizer = self.configure_optimizer(trainer.optimizer_cfg)
         base_lrs = [float(group["lr"]) for group in optimizer.param_groups]
         epochs = int(trainer.max_epochs)
-        num_batches = len(train_loader)
-        step_limit = self.debug_max_steps_per_epoch
+        step_limit = self._effective_step_limit(trainer)
+        num_batches = len(train_loader) if step_limit is None else min(len(train_loader), step_limit)
         self._log_stage(
             trainer,
             f"fit_task start task={getattr(task, 'name', task)} epochs={epochs} step_limit={step_limit if step_limit is not None else 'full'}",
@@ -730,8 +739,12 @@ class Prompt2GuardMethod(ContinualMethod):
             total_loss = 0.0
             total = 0
             correct = 0
+            n = 0
             epoch_started_at = time.monotonic()
-            for batch_idx, batch in enumerate(train_loader, start=1):
+            batches = enumerate(train_loader, start=1)
+            if step_limit is not None:
+                batches = islice(batches, step_limit)
+            for batch_idx, batch in batches:
                 non_blocking = bool(getattr(trainer, "non_blocking", False))
                 x = batch["x"].to(self.device, non_blocking=non_blocking)
                 y = batch["y"].long().to(self.device, non_blocking=non_blocking)
@@ -747,12 +760,7 @@ class Prompt2GuardMethod(ContinualMethod):
                 pred = out["logits"].argmax(dim=1)
                 correct += int((pred == y).sum().detach().cpu())
                 total += int(y.numel())
-                if step_limit is not None and batch_idx >= step_limit:
-                    self._log_stage(
-                        trainer,
-                        f"fit_task epoch_stop epoch={epoch + 1}/{epochs} reached_step_limit={step_limit} total_seen={batch_idx}/{num_batches}",
-                    )
-                    break
+                n += 1
                 if getattr(trainer, "train_log_interval", 0) > 0 and batch_idx % trainer.train_log_interval == 0:
                     trainer.log_train_metrics(
                         {
@@ -767,16 +775,21 @@ class Prompt2GuardMethod(ContinualMethod):
                         num_batches=num_batches,
                         started_at=epoch_started_at,
                     )
+            if step_limit is not None and step_limit < len(train_loader):
+                self._log_stage(
+                    trainer,
+                    f"fit_task epoch_stop epoch={epoch + 1}/{epochs} reached_step_limit={step_limit} total_seen={n}/{len(train_loader)}",
+                )
             trainer.log_train_metrics(
                 {
-                    "loss": total_loss / max(len(train_loader), 1),
+                    "loss": total_loss / max(n, 1),
                     "acc": correct / max(total, 1),
                 },
                 task=task,
                 epoch=epoch + 1,
                 epochs=epochs,
                 optimizer=optimizer,
-                batch_idx=num_batches,
+                batch_idx=n,
                 num_batches=num_batches,
                 started_at=epoch_started_at,
             )

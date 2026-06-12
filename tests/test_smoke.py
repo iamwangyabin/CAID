@@ -548,7 +548,42 @@ def make_protocol_arrow(root: Path) -> Path:
     return write_aid_arrow_dataset(root / "protocol_aid", rows, "image")
 
 
-def test_yaml_protocol_decouples_task_order_from_storage(tmp_path):
+def test_debug_max_steps_per_epoch_limits_default_train_loop(tmp_path):
+    data_root = make_protocol_arrow(tmp_path)
+    cfg = {
+        "seed": 0,
+        "device": "cpu",
+        "output_dir": str(tmp_path / "out_debug_steps"),
+        "logging": {"backend": "none"},
+        "scenario": {
+            "data": {"backend": "aid_arrow", "path": str(data_root), "image_column": "image"},
+            "protocol": {
+                "tasks": [{"id": "d0", "name": "D0", "numeric_id": 0, "filter": {"include": {"domain": "d0"}}}],
+            },
+            "transform": image_transform(16),
+        },
+        "train": {
+            "epochs": 1,
+            "batch_size": 2,
+            "num_workers": 0,
+            "debug_max_steps_per_epoch": 2,
+            "optimizer": {"type": "adamw", "lr": 1e-3},
+        },
+        "method": {
+            "name": "finetune",
+            "num_classes": 2,
+            "detector_cfg": {"num_classes": 2, "backbone": {"type": "small_conv", "out_dim": 8}},
+        },
+    }
+
+    trainer = Trainer(cfg)
+    assert trainer.scenario.tasks[0].num_train == 6
+    trainer.run()
+
+    assert trainer.global_step == 2
+
+
+def test_yaml_protocol_decouples_task_sequence_from_storage(tmp_path):
     data_root = make_protocol_arrow(tmp_path)
     protocol = {
         "name": "two_domain_protocol",

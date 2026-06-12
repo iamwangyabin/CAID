@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from sklearn.cluster import KMeans
 
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module
+from .base import ContinualMethod, batch_to_device, build_optimizer, freeze_module, iter_limited_train_batches
 
 
 _CP_PROMPT_DEFAULT_CLASS_NAMES = ("real", "fake")
@@ -94,7 +94,7 @@ def _run_minibatch_loop(
     for epoch in range(int(epochs)):
         totals: dict[str, float] = {}
         n = 0
-        for batch in train_loader:
+        for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
             out = method.observe(batch, task)
             loss = out["loss"]
             optimizer.zero_grad(set_to_none=True)
@@ -963,8 +963,9 @@ class CPPromptMethod(DomainRoutedFeatureMethod):
             totals: dict[str, float] = {}
             correct = 0
             total = 0
+            n = 0
             lr = float(optimizer.param_groups[0]["lr"])
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 out = self.observe(batch, task)
                 loss = out["loss"]
                 optimizer.zero_grad(set_to_none=True)
@@ -978,9 +979,10 @@ class CPPromptMethod(DomainRoutedFeatureMethod):
                 correct += int(logits.argmax(dim=1).eq(targets).detach().cpu().sum())
                 total += int(targets.numel())
                 totals["loss"] = totals.get("loss", 0.0) + float(loss.detach().cpu())
+                n += 1
             scheduler.step()
             metrics = {
-                "loss": totals.get("loss", 0.0) / max(len(train_loader), 1),
+                "loss": totals.get("loss", 0.0) / max(n, 1),
                 "acc": correct / max(total, 1),
             }
             trainer.log_train_metrics(

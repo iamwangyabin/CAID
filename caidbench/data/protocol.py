@@ -56,7 +56,7 @@ def _series_membership_in(series: pd.Series, values: Any) -> pd.Series:
 
     text = series.astype(str)
     exact = text.isin(vals)
-    # Stitched Arrow task hints are scalar directory names. Avoid a Python
+    # CAIDBench Arrow task hints are scalar directory names. Avoid a Python
     # per-row split over million-row metadata frames in that common path.
     if not text.str.contains(";", regex=False).any():
         return exact

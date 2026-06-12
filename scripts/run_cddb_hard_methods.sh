@@ -26,17 +26,17 @@ if [[ -n "${CONFIGS:-}" ]]; then
   RUN_CONFIGS=($CONFIGS)
 else
   RUN_CONFIGS=(
-    configs/ranpac.yaml
-    configs/layup.yaml
-    configs/pina.yaml
-    configs/cp_prompt.yaml
-    configs/duct.yaml
-    configs/soyo.yaml
-    configs/loranpac.yaml
-    configs/dce.yaml
+    configs/reproduce/ranpac.yaml
+    configs/reproduce/layup.yaml
+    configs/reproduce/pina.yaml
+    configs/reproduce/cp_prompt.yaml
+    configs/reproduce/duct.yaml
+    configs/reproduce/soyo.yaml
+    configs/reproduce/loranpac.yaml
+    configs/reproduce/dce.yaml
   )
   if [[ "$INCLUDE_DONE" == "1" ]]; then
-    RUN_CONFIGS+=(configs/sprompts.yaml configs/prompt2guard.yaml)
+    RUN_CONFIGS+=(configs/reproduce/sprompts.yaml configs/reproduce/prompt2guard.yaml)
   fi
 fi
 

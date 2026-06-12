@@ -1,6 +1,6 @@
 # Explicit continual order for the paired protocol index.
 # Each task learns one generator; order is the list order below.
-index_path: continual_90_index.parquet
+index_path: continual_index.parquet
 tasks:
   - id: progan
     name: "ProGAN"

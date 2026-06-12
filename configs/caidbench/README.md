@@ -3,9 +3,9 @@
 These configs are complete experiment entry points for the generated CAIDBench
 continual protocols. Use them with `caid-train --config ...`.
 
-## CAIDBench 90-Task Protocol
+## CAIDBench Default Protocol
 
-`configs/caidbench/finetune_90.yaml` wires together the pieces required for a
+`configs/caidbench/finetune_default.yaml` wires together the pieces required for a
 run:
 
 - dataset root: `scenario.data.path`
@@ -15,14 +15,14 @@ run:
 Example:
 
 ```bash
-caid-train --config configs/caidbench/finetune_90.yaml
+caid-train --config configs/caidbench/finetune_default.yaml
 ```
 
 For local smoke runs without SwanLab:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_90.yaml \
+  --config configs/caidbench/finetune_default.yaml \
   --override logging.backend=none
 ```
 
@@ -31,6 +31,14 @@ root:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_90.yaml \
+  --config configs/caidbench/finetune_default.yaml \
   --override scenario.data.path=/path/to/caidbench_arrow_root
+```
+
+To run the model-appearance order instead of the default order:
+
+```bash
+caid-train \
+  --config configs/caidbench/finetune_default.yaml \
+  --override scenario.protocol=protocols/caidbench/model_appearance_order_protocol.yaml
 ```

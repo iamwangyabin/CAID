@@ -1,0 +1,545 @@
+# Model-appearance continual order for the paired protocol index.
+# Each task learns one generator; order is the list order below.
+# Data selection keeps the original index task_id in each task filter.
+index_path: continual_index.parquet
+tasks:
+  - id: progan
+    name: "ProGAN"
+    numeric_id: 0
+    filter:
+      include:
+        task_id: 0
+  - id: deepfakes
+    name: "DeepFakes"
+    numeric_id: 1
+    filter:
+      include:
+        task_id: 38
+  - id: biggan
+    name: "BigGAN"
+    numeric_id: 2
+    filter:
+      include:
+        task_id: 85
+  - id: pluralistic
+    name: "Pluralistic"
+    numeric_id: 3
+    filter:
+      include:
+        task_id: 48
+  - id: maskgan
+    name: "MaskGAN"
+    numeric_id: 4
+    filter:
+      include:
+        task_id: 46
+  - id: fsgan
+    name: "FSGAN"
+    numeric_id: 5
+    filter:
+      include:
+        task_id: 31
+  - id: stylegan2
+    name: "StyleGAN2"
+    numeric_id: 6
+    filter:
+      include:
+        task_id: 33
+  - id: stargan2
+    name: "StarGAN2"
+    numeric_id: 7
+    filter:
+      include:
+        task_id: 58
+  - id: faceshifter
+    name: "FaceShifter"
+    numeric_id: 8
+    filter:
+      include:
+        task_id: 41
+  - id: atvg_net
+    name: "ATVG-Net"
+    numeric_id: 9
+    filter:
+      include:
+        task_id: 36
+  - id: fomm
+    name: "FOMM"
+    numeric_id: 10
+    filter:
+      include:
+        task_id: 30
+  - id: discofacegan
+    name: "DiscoFaceGAN"
+    numeric_id: 11
+    filter:
+      include:
+        task_id: 39
+  - id: ddim
+    name: "DDIM"
+    numeric_id: 12
+    filter:
+      include:
+        task_id: 21
+  - id: vqgan
+    name: "VQGAN"
+    numeric_id: 13
+    filter:
+      include:
+        task_id: 27
+  - id: mmreplacement
+    name: "MMreplacement"
+    numeric_id: 14
+    filter:
+      include:
+        task_id: 5
+  - id: sbs
+    name: "SBS"
+    numeric_id: 15
+    filter:
+      include:
+        task_id: 28
+  - id: blendface
+    name: "BlendFace"
+    numeric_id: 16
+    filter:
+      include:
+        task_id: 29
+  - id: adm
+    name: "ADM"
+    numeric_id: 17
+    filter:
+      include:
+        task_id: 35
+  - id: stylegan3
+    name: "StyleGAN3"
+    numeric_id: 18
+    filter:
+      include:
+        task_id: 24
+  - id: lama
+    name: "LaMa"
+    numeric_id: 19
+    filter:
+      include:
+        task_id: 45
+  - id: vqdm
+    name: "VQDM"
+    numeric_id: 20
+    filter:
+      include:
+        task_id: 59
+  - id: glide
+    name: "GLIDE"
+    numeric_id: 21
+    filter:
+      include:
+        task_id: 42
+  - id: ldm
+    name: "LDM"
+    numeric_id: 22
+    filter:
+      include:
+        task_id: 3
+  - id: repaint_ldm
+    name: "RePaint-LDM"
+    numeric_id: 23
+    filter:
+      include:
+        task_id: 50
+  - id: repaint_p2
+    name: "RePaint-P2"
+    numeric_id: 24
+    filter:
+      include:
+        task_id: 51
+  - id: styleganxl
+    name: "StyleGANXL"
+    numeric_id: 25
+    filter:
+      include:
+        task_id: 25
+  - id: wukong
+    name: "Wukong"
+    numeric_id: 26
+    filter:
+      include:
+        task_id: 60
+  - id: sd1_4
+    name: "SD1.4"
+    numeric_id: 27
+    filter:
+      include:
+        task_id: 52
+  - id: sd1_5
+    name: "SD1.5"
+    numeric_id: 28
+    filter:
+      include:
+        task_id: 53
+  - id: sd2_1
+    name: "SD2.1"
+    numeric_id: 29
+    filter:
+      include:
+        task_id: 55
+  - id: dit
+    name: "DiT"
+    numeric_id: 30
+    filter:
+      include:
+        task_id: 22
+  - id: sd_controlnet_canny
+    name: "SD-controlnet-canny"
+    numeric_id: 31
+    filter:
+      include:
+        task_id: 11
+  - id: midjourney_v5
+    name: "Midjourney v5"
+    numeric_id: 32
+    filter:
+      include:
+        task_id: 47
+  - id: sdxl_refiner
+    name: "SDXL-Refiner"
+    numeric_id: 33
+    filter:
+      include:
+        task_id: 14
+  - id: sdxl_base
+    name: "SDXL-base"
+    numeric_id: 34
+    filter:
+      include:
+        task_id: 57
+  - id: sd1_5_dreamshaper
+    name: "SD1.5 DreamShaper"
+    numeric_id: 35
+    filter:
+      include:
+        task_id: 54
+  - id: realistic_vision_v5_1_novae
+    name: "Realistic Vision v5.1 Novae"
+    numeric_id: 36
+    filter:
+      include:
+        task_id: 70
+  - id: sd21_controlnet_canny
+    name: "SD21-controlnet-canny"
+    numeric_id: 37
+    filter:
+      include:
+        task_id: 13
+  - id: rddm
+    name: "RDDM"
+    numeric_id: 38
+    filter:
+      include:
+        task_id: 10
+  - id: sdxl_controlnet_canny
+    name: "SDXL-controlnet-canny"
+    numeric_id: 39
+    filter:
+      include:
+        task_id: 16
+  - id: dall_e_3
+    name: "DALL-E 3"
+    numeric_id: 40
+    filter:
+      include:
+        task_id: 64
+  - id: pixart_alpha
+    name: "PixArt-alpha"
+    numeric_id: 41
+    filter:
+      include:
+        task_id: 7
+  - id: sd1_5_lcm_lora
+    name: "SD1.5-lcm-lora"
+    numeric_id: 42
+    filter:
+      include:
+        task_id: 12
+  - id: sdxl_lcm_lora
+    name: "SDXL-lcm-lora"
+    numeric_id: 43
+    filter:
+      include:
+        task_id: 17
+  - id: kandinsky_3
+    name: "Kandinsky-3"
+    numeric_id: 44
+    filter:
+      include:
+        task_id: 2
+  - id: sdxl_turbo
+    name: "SDXL-Turbo"
+    numeric_id: 45
+    filter:
+      include:
+        task_id: 15
+  - id: sd_turbo
+    name: "SD Turbo"
+    numeric_id: 46
+    filter:
+      include:
+        task_id: 34
+  - id: playground
+    name: "Playground"
+    numeric_id: 47
+    filter:
+      include:
+        task_id: 9
+  - id: midjourney_v6
+    name: "Midjourney v6"
+    numeric_id: 48
+    filter:
+      include:
+        task_id: 69
+  - id: pony
+    name: "Pony"
+    numeric_id: 49
+    filter:
+      include:
+        task_id: 86
+  - id: animagine_xl_3_0
+    name: "Animagine XL 3.0"
+    numeric_id: 50
+    filter:
+      include:
+        task_id: 79
+  - id: sit
+    name: "SiT"
+    numeric_id: 51
+    filter:
+      include:
+        task_id: 23
+  - id: sdxl_juggernaut
+    name: "SDXL Juggernaut"
+    numeric_id: 52
+    filter:
+      include:
+        task_id: 71
+  - id: playground_v2_5
+    name: "Playground-v2.5"
+    numeric_id: 53
+    filter:
+      include:
+        task_id: 63
+  - id: pixart_sigma
+    name: "PixArt-sigma"
+    numeric_id: 54
+    filter:
+      include:
+        task_id: 8
+  - id: lavi_bridge
+    name: "LaVi-Bridge"
+    numeric_id: 55
+    filter:
+      include:
+        task_id: 4
+  - id: animagine_xl_3_1
+    name: "Animagine XL 3.1"
+    numeric_id: 56
+    filter:
+      include:
+        task_id: 80
+  - id: imagen_3_0
+    name: "Imagen 3.0"
+    numeric_id: 57
+    filter:
+      include:
+        task_id: 77
+  - id: sd_3_medium
+    name: "sd_3_medium"
+    numeric_id: 58
+    filter:
+      include:
+        task_id: 20
+  - id: kolors
+    name: "Kolors"
+    numeric_id: 59
+    filter:
+      include:
+        task_id: 83
+  - id: flux_dev_local
+    name: "flux-dev-local"
+    numeric_id: 60
+    filter:
+      include:
+        task_id: 18
+  - id: flux_1
+    name: "FLUX.1"
+    numeric_id: 61
+    filter:
+      include:
+        task_id: 40
+  - id: sdxl_realvisxl_v5
+    name: "SDXL RealVisXL v5"
+    numeric_id: 62
+    filter:
+      include:
+        task_id: 72
+  - id: illustrious
+    name: "Illustrious"
+    numeric_id: 63
+    filter:
+      include:
+        task_id: 32
+  - id: flux_1_1_pro
+    name: "FLUX.1.1 Pro"
+    numeric_id: 64
+    filter:
+      include:
+        task_id: 65
+  - id: noobai
+    name: "NoobAI"
+    numeric_id: 65
+    filter:
+      include:
+        task_id: 89
+  - id: tiny_random_sana
+    name: "Tiny-Random-Sana"
+    numeric_id: 66
+    filter:
+      include:
+        task_id: 73
+  - id: janus
+    name: "Janus"
+    numeric_id: 67
+    filter:
+      include:
+        task_id: 1
+  - id: sd3_5
+    name: "SD3.5"
+    numeric_id: 68
+    filter:
+      include:
+        task_id: 56
+  - id: sd_3_5_medium
+    name: "sd_3.5_medium"
+    numeric_id: 69
+    filter:
+      include:
+        task_id: 88
+  - id: nova
+    name: "NOVA"
+    numeric_id: 70
+    filter:
+      include:
+        task_id: 6
+  - id: infinity
+    name: "infinity"
+    numeric_id: 71
+    filter:
+      include:
+        task_id: 19
+  - id: grok_2_image_1212
+    name: "Grok-2-Image-1212"
+    numeric_id: 72
+    filter:
+      include:
+        task_id: 67
+  - id: animagine_xl_4_0
+    name: "Animagine XL 4.0"
+    numeric_id: 73
+    filter:
+      include:
+        task_id: 78
+  - id: ideogram_3_0
+    name: "Ideogram 3.0"
+    numeric_id: 74
+    filter:
+      include:
+        task_id: 68
+  - id: hidream_i1
+    name: "HiDream-I1"
+    numeric_id: 75
+    filter:
+      include:
+        task_id: 61
+  - id: seedream
+    name: "Seedream"
+    numeric_id: 76
+    filter:
+      include:
+        task_id: 74
+  - id: gpt_image_1
+    name: "GPT-Image-1"
+    numeric_id: 77
+    filter:
+      include:
+        task_id: 43
+  - id: imagen_4
+    name: "Imagen-4"
+    numeric_id: 78
+    filter:
+      include:
+        task_id: 44
+  - id: qwen_image
+    name: "Qwen-Image"
+    numeric_id: 79
+    filter:
+      include:
+        task_id: 49
+  - id: talking_headvideo
+    name: "Talking-headVideo"
+    numeric_id: 80
+    filter:
+      include:
+        task_id: 26
+  - id: nano_banana
+    name: "Nano Banana"
+    numeric_id: 81
+    filter:
+      include:
+        task_id: 75
+  - id: chroma
+    name: "Chroma"
+    numeric_id: 82
+    filter:
+      include:
+        task_id: 37
+  - id: nano_banana_pro
+    name: "Nano Banana Pro"
+    numeric_id: 83
+    filter:
+      include:
+        task_id: 87
+  - id: flux_2_dev
+    name: "FLUX.2-dev"
+    numeric_id: 84
+    filter:
+      include:
+        task_id: 62
+  - id: z_image
+    name: "Z-Image"
+    numeric_id: 85
+    filter:
+      include:
+        task_id: 81
+  - id: flux_2_klein_4b
+    name: "FLUX.2 Klein 4B"
+    numeric_id: 86
+    filter:
+      include:
+        task_id: 66
+  - id: cyberrealistic_xl_v9_0
+    name: "CyberRealistic XL v9.0"
+    numeric_id: 87
+    filter:
+      include:
+        task_id: 82
+  - id: nano_banana_2
+    name: "Nano Banana 2"
+    numeric_id: 88
+    filter:
+      include:
+        task_id: 84
+  - id: anima
+    name: "Anima"
+    numeric_id: 89
+    filter:
+      include:
+        task_id: 76

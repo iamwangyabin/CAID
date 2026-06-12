@@ -16,14 +16,14 @@ For generated CAIDBench protocols, prefer the ready-to-run configs under
 Example:
 
 ```bash
-caid-train --config configs/caidbench/finetune_90.yaml
+caid-train --config configs/caidbench/finetune_default.yaml
 ```
 
 The protocol file used by that config is:
 
 ```yaml
 scenario:
-  protocol: protocols/caidbench/continual_90_protocol.yaml
+  protocol: protocols/caidbench/default_protocol.yaml
 ```
 
 The matching dataset root is in the same config:
@@ -38,7 +38,7 @@ scenario:
 The selected index is declared by the protocol file itself:
 
 ```yaml
-index_path: continual_90_index.parquet
+index_path: continual_index.parquet
 tasks:
   ...
 ```

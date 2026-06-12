@@ -39,10 +39,10 @@ Train a method:
 caid-train --config configs/reproduce/dfil.yaml
 ```
 
-Run the generated CAIDBench 90-task protocol:
+Run the generated CAIDBench continual protocol:
 
 ```bash
-caid-train --config configs/caidbench/finetune_90.yaml
+caid-train --config configs/caidbench/finetune_default.yaml
 ```
 
 Protocol files only define task order and filters. Dataset paths live in

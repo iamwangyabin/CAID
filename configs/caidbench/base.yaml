@@ -19,7 +19,7 @@ scenario:
     split_column: split
     task_hint_mode: dir
     domain_from: dir_name
-  protocol: protocols/caidbench/continual_90_protocol.yaml
+  protocol: protocols/caidbench/default_protocol.yaml
   transform:
     train:
       trsf:

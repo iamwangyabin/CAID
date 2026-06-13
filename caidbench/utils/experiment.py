@@ -52,6 +52,8 @@ def _slug_part(value: Any) -> str:
 def _protocol_dataset_name(protocol: Any) -> str | None:
     if not protocol:
         return None
+    if isinstance(protocol, Mapping):
+        return None
     stem = Path(str(protocol)).stem
     lower = stem.lower()
     if "cddb_hard" in lower:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import logging
 import json
@@ -11,13 +12,16 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
+import caidbench.engine.trainer as trainer_mod
 from caidbench.data.scenario import ContinualScenario
 from caidbench.engine import Trainer
 from caidbench.engine.trainer import _format_duration
 from caidbench.methods.base import effective_train_batches, iter_limited_train_batches
 from caidbench.models.backbones import build_backbone
 from caidbench.registry import list_methods
+from caidbench.utils.checkpoint import save_checkpoint
 from caidbench.utils.logging import get_logger
 
 
@@ -230,13 +234,132 @@ def test_eval_console_logging_uses_table(caplog):
 
 def test_finetune_smoke(tmp_path):
     cfg = base_cfg(tmp_path, "finetune")
-    summary = Trainer(cfg).run()
+    trainer = Trainer(cfg)
+    summary = trainer.run()
     assert "average_accuracy" in summary
     assert "average_ap" in summary
     assert "average_f1" in summary
-    out_dir = Path(cfg["output_dir"])
+    assert summary["completed_tasks"] == 2
+    out_dir = trainer.output_dir
     assert (out_dir / "ap_matrix.csv").exists()
     assert (out_dir / "f1_matrix.csv").exists()
+    assert (out_dir / "eval_details.csv").exists()
+    assert (out_dir / "official_weighted_curves.csv").exists()
+    assert (out_dir / "summary.json").exists()
+    assert (out_dir / "train.log").exists()
+    assert (out_dir / "base.pt").exists()
+    assert (out_dir / "last.pt").exists()
+    assert not list(out_dir.glob("task_*.pt"))
+
+
+def test_per_task_checkpoints_can_be_enabled(tmp_path):
+    cfg = base_cfg(tmp_path, "finetune")
+    cfg["checkpoint"] = {"save_each_task": True}
+    trainer = Trainer(cfg)
+    trainer.run()
+
+    assert (trainer.output_dir / "task_0.pt").exists()
+    assert (trainer.output_dir / "task_1.pt").exists()
+    assert (trainer.output_dir / "base.pt").exists()
+    assert (trainer.output_dir / "last.pt").exists()
+
+
+def test_checkpoints_are_weights_only_loadable(tmp_path):
+    cfg = base_cfg(tmp_path, "finetune")
+    trainer = Trainer(cfg)
+    trainer.run()
+
+    checkpoint = torch.load(trainer.output_dir / "last.pt", map_location="cpu", weights_only=True)
+    assert isinstance(checkpoint["model"], dict)
+    assert checkpoint["checkpoint_version"] == 1
+    assert checkpoint["completed_tasks"] == 2
+    assert checkpoint["metric_tables"]["acc"][0][0] is not None
+
+    class UnsafeObject:
+        pass
+
+    with pytest.raises(TypeError, match="unsupported object"):
+        save_checkpoint(tmp_path / "bad.pt", model=UnsafeObject())
+
+
+def test_resume_from_checkpoint_continues_after_completed_task(tmp_path):
+    cfg = base_cfg(tmp_path, "finetune")
+    first = Trainer(cfg)
+    first.run()
+
+    resumed_cfg = copy.deepcopy(cfg)
+    resumed_cfg["output_dir"] = str(tmp_path / "out_resume")
+    resumed_cfg["resume_from"] = str(first.output_dir / "base.pt")
+    resumed = Trainer(resumed_cfg)
+    summary = resumed.run()
+
+    assert resumed.resume_task_index == 0
+    assert resumed.global_step == 2
+    assert summary["completed_tasks"] == 2
+    assert len(resumed.eval_records) == 3
+    assert resumed.eval_records[0]["after_task"] == 0
+    assert resumed.eval_records[-1]["after_task"] == 1
+
+
+def test_partial_outputs_are_written_after_run_error(tmp_path, monkeypatch):
+    cfg = base_cfg(tmp_path, "finetune")
+    trainer = Trainer(cfg)
+
+    def fail_save_intermediate(task_index: int) -> None:
+        raise RuntimeError(f"checkpoint failed at task {task_index}")
+
+    monkeypatch.setattr(trainer, "_save_intermediate", fail_save_intermediate)
+    with pytest.raises(RuntimeError, match="checkpoint failed"):
+        trainer.run()
+
+    with open(trainer.output_dir / "summary.json", "r", encoding="utf-8") as fp:
+        summary = json.load(fp)
+    assert summary["completed_tasks"] == 1
+    assert (trainer.output_dir / "acc_matrix.csv").exists()
+    assert (trainer.output_dir / "eval_details.csv").exists()
+
+
+def test_eval_dataloaders_do_not_use_persistent_workers(tmp_path, monkeypatch):
+    cfg = base_cfg(tmp_path, "finetune")
+    cfg["train"]["num_workers"] = 2
+    cfg["train"]["persistent_workers"] = True
+    trainer = Trainer(cfg)
+    calls = []
+
+    def fake_build_dataloader(dataset, **kwargs):
+        calls.append(kwargs)
+        return dataset
+
+    monkeypatch.setattr(trainer_mod, "build_dataloader", fake_build_dataloader)
+
+    trainer.dataloader(0, "train", shuffle=True)
+    trainer.dataloader(0, "test", shuffle=False)
+    trainer.dataloader(0, "val", shuffle=False)
+
+    assert [call["num_workers"] for call in calls] == [2, 0, 0]
+    assert [call["persistent_workers"] for call in calls] == [True, False, False]
+
+
+def test_eval_num_workers_override_enables_eval_workers(tmp_path, monkeypatch):
+    cfg = base_cfg(tmp_path, "finetune")
+    cfg["train"]["num_workers"] = 2
+    cfg["train"]["eval_num_workers"] = 1
+    cfg["train"]["persistent_workers"] = True
+    trainer = Trainer(cfg)
+    calls = []
+
+    def fake_build_dataloader(dataset, **kwargs):
+        calls.append(kwargs)
+        return dataset
+
+    monkeypatch.setattr(trainer_mod, "build_dataloader", fake_build_dataloader)
+
+    trainer.dataloader(0, "train", shuffle=True)
+    trainer.dataloader(0, "test", shuffle=False)
+    trainer.dataloader(0, "val", shuffle=False)
+
+    assert [call["num_workers"] for call in calls] == [2, 1, 1]
+    assert [call["persistent_workers"] for call in calls] == [True, False, False]
 
 
 def test_preextracted_feature_interfaces_are_rejected(tmp_path):
@@ -285,7 +408,7 @@ def test_default_logging_uses_swanlab(tmp_path, monkeypatch):
     assert calls["init"]
     assert calls["init"][0]["project"] == "CAIDBench"
     assert calls["init"][0]["mode"] == "cloud"
-    assert re.fullmatch(r"finetune-out_finetune-\d{8}-\d{6}-\d{3}", calls["init"][0]["experiment_name"])
+    assert re.fullmatch(r"finetune-images_aid-\d{8}-\d{6}-\d{3}", calls["init"][0]["experiment_name"])
     assert not any("run/started" in data for data, _ in calls["log"])
     assert not any(any(key.startswith("task/") for key in data) for data, _ in calls["log"])
     assert not any(any(key.startswith("eval/task_") and key.count("/") > 1 for key in data) for data, _ in calls["log"])

@@ -18,7 +18,7 @@ from ..methods.base import build_optimizer
 from ..registry import build_method
 from ..utils.checkpoint import load_checkpoint, save_checkpoint
 from ..utils.experiment import build_experiment_logger, compute_experiment_name
-from ..utils.logging import format_log_value, get_logger
+from ..utils.logging import attach_file_handler, format_log_value, get_logger
 from ..utils.seed import seed_everything
 from ..utils.tensor import move_to_device
 
@@ -76,11 +76,23 @@ class Trainer:
         self.max_epochs = int(train_cfg.get("epochs", 1))
         self.batch_size = int(train_cfg.get("batch_size", 32))
         self.num_workers = int(train_cfg.get("num_workers", 0))
+        self.eval_num_workers = int(train_cfg.get("eval_num_workers", 0))
         self.pin_memory = bool(train_cfg.get("pin_memory", self.device.type == "cuda"))
         self.persistent_workers = bool(train_cfg.get("persistent_workers", self.num_workers > 0))
         self.prefetch_factor = train_cfg.get("prefetch_factor", 2 if self.num_workers > 0 else None)
         self.non_blocking = bool(train_cfg.get("non_blocking", self.pin_memory and self.device.type == "cuda"))
         self.drop_last = bool(train_cfg.get("drop_last", False))
+        checkpoint_cfg = cfg.get("checkpoint", {}) or {}
+        if not isinstance(checkpoint_cfg, Mapping):
+            raise TypeError("checkpoint config must be a mapping")
+        self.save_last_checkpoint = bool(checkpoint_cfg.get("save_last", True))
+        self.save_base_checkpoint = bool(checkpoint_cfg.get("save_base", True))
+        self.save_task_checkpoints = bool(
+            checkpoint_cfg.get(
+                "save_each_task",
+                checkpoint_cfg.get("save_task_checkpoints", checkpoint_cfg.get("save_intermediate", False)),
+            )
+        )
         self.train_log_interval = int(train_cfg.get("log_interval", 50))
         if self.train_log_interval <= 0:
             self.train_log_interval = 0
@@ -90,10 +102,12 @@ class Trainer:
         self.metric_matrix = ContinualMetricMatrix([t.name for t in self.scenario.tasks])
         self.eval_records: list[dict[str, Any]] = []
         self.global_step = 0
+        self.resume_task_index = -1
         self._active_train_task_index: float | None = None
         experiment_name = compute_experiment_name(self.cfg, base_output_dir, str(method_name))
         self.output_dir = base_output_dir / experiment_name
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        attach_file_handler(self.logger, self.output_dir / "train.log")
         self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name), experiment_name=experiment_name)
         resume_from = cfg.get("resume_from")
         if resume_from:
@@ -124,15 +138,18 @@ class Trainer:
     ):
         ds = self.scenario.task_dataset(split, task_index, transform_split=transform_split)
         effective_drop_last = self.drop_last and split == "train" if drop_last is None else bool(drop_last)
+        effective_num_workers = self.num_workers if split == "train" else self.eval_num_workers
+        effective_persistent_workers = self.persistent_workers and split == "train" and effective_num_workers > 0
+        effective_prefetch_factor = self.prefetch_factor if effective_num_workers > 0 else None
         loader = build_dataloader(
             ds,
             batch_size=self.batch_size,
             shuffle=shuffle,
-            num_workers=self.num_workers,
+            num_workers=effective_num_workers,
             drop_last=effective_drop_last,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-            prefetch_factor=self.prefetch_factor,
+            persistent_workers=effective_persistent_workers,
+            prefetch_factor=effective_prefetch_factor,
         )
         return loader
 
@@ -319,11 +336,17 @@ class Trainer:
         self.method.eval()
         logits_list: list[torch.Tensor] = []
         y_list: list[torch.Tensor] = []
-        for batch in loader:
-            batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
-            out = self.method.predict(batch)
-            logits_list.append(out["logits"].detach().cpu())
-            y_list.append(batch["y"].detach().cpu())
+        iterator = iter(loader)
+        try:
+            for batch in iterator:
+                batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
+                out = self.method.predict(batch)
+                logits_list.append(out["logits"].detach().cpu())
+                y_list.append(batch["y"].detach().cpu())
+        finally:
+            shutdown = getattr(iterator, "_shutdown_workers", None)
+            if callable(shutdown):
+                shutdown()
         if not logits_list:
             return {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan"), "num_samples": 0}
         logits = torch.cat(logits_list, dim=0)
@@ -348,7 +371,10 @@ class Trainer:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
             if self.debug_max_steps_per_epoch is not None:
                 self.logger.info("Debug train step limit enabled: max_steps_per_epoch=%d", self.debug_max_steps_per_epoch)
-            for i, task in enumerate(self.scenario.tasks):
+            start_task_index = min(max(self.resume_task_index + 1, 0), len(self.scenario.tasks))
+            if start_task_index > 0:
+                self.logger.info("Resuming from completed task_index=%d; next_task_index=%d", self.resume_task_index, start_task_index)
+            for i, task in enumerate(self.scenario.tasks[start_task_index:], start=start_task_index):
                 self.logger.info("=== Task %d/%d: %s train=%d test=%d ===", i + 1, len(self.scenario.tasks), task.name, task.num_train, task.num_test)
                 self._active_train_task_index = float(getattr(task, "task_id", i))
                 train_loader = self.dataloader(i, "train", shuffle=True)
@@ -363,7 +389,10 @@ class Trainer:
                 eval_rows: list[dict[str, Any]] = []
                 for j in range(i + 1):
                     test_loader = self.dataloader(j, "test", shuffle=False)
-                    metrics = self.evaluate_loader(test_loader)
+                    try:
+                        metrics = self.evaluate_loader(test_loader)
+                    finally:
+                        del test_loader
                     self.metric_matrix.update(i, j, metrics["acc"], metrics["auc"], metrics["ap"], metrics["f1"])
                     record = {
                         "after_task": i,
@@ -396,8 +425,9 @@ class Trainer:
                 self._log_eval_table(eval_rows, step=i)
                 self.log_metrics(eval_payload, step=i)
                 self._save_intermediate(i)
+                self._write_outputs(log_tables=False)
                 self._active_train_task_index = None
-            summary = self._write_outputs()
+            summary = self._write_outputs(log_tables=True)
             self.log_metrics(
                 {
                     "summary/average_accuracy": summary["average_accuracy"],
@@ -423,20 +453,29 @@ class Trainer:
                 summary["official_last_accuracy"],
             )
             return summary
+        except BaseException:
+            self._write_partial_outputs_after_error()
+            raise
         finally:
             self.experiment.finish()
 
     def _save_intermediate(self, task_index: int) -> None:
         payload = {
+            "checkpoint_version": 1,
             "model": self.method.state_dict(),
             "auxiliary": self.method.auxiliary_state_dict(),
             "cfg": self.cfg,
             "task_index": task_index,
+            "completed_tasks": task_index + 1,
             "global_step": self.global_step,
+            "metric_tables": self.metric_matrix.to_tables(),
+            "eval_records": self.eval_records,
         }
-        save_checkpoint(self.output_dir / f"task_{task_index}.pt", **payload)
-        save_checkpoint(self.output_dir / "last.pt", **payload)
-        if task_index == 0:
+        if self.save_task_checkpoints:
+            save_checkpoint(self.output_dir / f"task_{task_index}.pt", **payload)
+        if self.save_last_checkpoint:
+            save_checkpoint(self.output_dir / "last.pt", **payload)
+        if task_index == 0 and self.save_base_checkpoint:
             save_checkpoint(self.output_dir / "base.pt", **payload)
 
     def _resume_from_checkpoint(self, path: str | Path) -> None:
@@ -448,36 +487,103 @@ class Trainer:
             self.logger.info("resume_from: unexpected keys %s", result.unexpected_keys)
         self.method.load_auxiliary_state_dict(ckpt.get("auxiliary"))
         self.global_step = int(ckpt.get("global_step", 0))
+        self.resume_task_index = int(ckpt.get("task_index", -1))
+        self._load_checkpoint_metrics(ckpt)
         self.logger.info("resume_from: loaded checkpoint %s (task_index=%s, global_step=%s)", path, ckpt.get("task_index"), self.global_step)
 
-    def _write_outputs(self) -> dict[str, Any]:
+    def _load_checkpoint_metrics(self, ckpt: Mapping[str, Any]) -> None:
+        raw_records = ckpt.get("eval_records")
+        if isinstance(raw_records, list):
+            self.eval_records = [dict(record) for record in raw_records if isinstance(record, Mapping)]
+        raw_tables = ckpt.get("metric_tables")
+        if not isinstance(raw_tables, Mapping):
+            return
+        n = len(self.scenario.tasks)
+        for kind in ("acc", "auc", "ap", "f1"):
+            table = raw_tables.get(kind)
+            if not isinstance(table, list):
+                continue
+            matrix = np.full((n, n), np.nan, dtype=float)
+            for row_idx, row in enumerate(table[:n]):
+                if not isinstance(row, list):
+                    continue
+                for col_idx, value in enumerate(row[:n]):
+                    if value is None:
+                        continue
+                    matrix[row_idx, col_idx] = float(value)
+            setattr(self.metric_matrix, kind, matrix)
+
+    def _completed_task_count(self) -> int:
+        if not self.eval_records:
+            return 0
+        return max(int(record["after_task"]) for record in self.eval_records) + 1
+
+    def _average_forgetting_until(self, kind: str, completed_task_count: int) -> float:
+        matrix = self.metric_matrix._matrix(kind)[:completed_task_count, :completed_task_count]
+        n = matrix.shape[0]
+        vals: list[float] = []
+        for j in range(max(n - 1, 0)):
+            best_before = np.nanmax(matrix[: n - 1, j])
+            final = matrix[n - 1, j]
+            if not (np.isnan(best_before) or np.isnan(final)):
+                vals.append(float(best_before - final))
+        return float(np.mean(vals)) if vals else float("nan")
+
+    def _write_partial_outputs_after_error(self) -> None:
+        if not self.eval_records:
+            return
+        try:
+            summary = self._write_outputs(log_tables=False)
+        except Exception:
+            self.logger.exception("Failed to write partial outputs after run error")
+            return
+        self.logger.info(
+            "Wrote partial outputs after run error: completed_tasks=%d output_dir=%s",
+            int(summary["completed_tasks"]),
+            self.output_dir,
+        )
+
+    def _write_outputs(self, *, log_tables: bool = True) -> dict[str, Any]:
+        completed_task_count = self._completed_task_count()
         tables = self.metric_matrix.to_tables()
         for kind in ("acc", "auc", "ap", "f1"):
             pd.DataFrame(tables[kind], columns=[t.name for t in self.scenario.tasks]).to_csv(self.output_dir / f"{kind}_matrix.csv", index=False)
+        pd.DataFrame(self.eval_records).to_csv(self.output_dir / "eval_details.csv", index=False)
+        task_rows = [t.__dict__ for t in self.scenario.tasks]
+        pd.DataFrame(task_rows).to_csv(self.output_dir / "task_details.csv", index=False)
         official_weighted_curves = {}
         for kind in ("acc", "auc", "ap", "f1"):
             official_weighted_curves[kind] = [
                 self._weighted_records((record for record in self.eval_records if int(record["after_task"]) == i), kind)
-                for i in range(len(self.scenario.tasks))
+                for i in range(completed_task_count)
             ]
+        pd.DataFrame(
+            [
+                {"after_task": i, **{kind: official_weighted_curves[kind][i] for kind in ("acc", "auc", "ap", "f1")}}
+                for i in range(completed_task_count)
+            ]
+        ).to_csv(self.output_dir / "official_weighted_curves.csv", index=False)
+        last_index = completed_task_count - 1
         summary = {
             "tasks": [t.__dict__ for t in self.scenario.tasks],
-            "average_accuracy": self.metric_matrix.average_accuracy(kind="acc"),
-            "average_forgetting": self.metric_matrix.average_forgetting(kind="acc"),
-            "average_auc": self.metric_matrix.average_accuracy(kind="auc"),
-            "auc_forgetting": self.metric_matrix.average_forgetting(kind="auc"),
-            "average_ap": self.metric_matrix.average_accuracy(kind="ap"),
-            "ap_forgetting": self.metric_matrix.average_forgetting(kind="ap"),
-            "average_f1": self.metric_matrix.average_accuracy(kind="f1"),
-            "f1_forgetting": self.metric_matrix.average_forgetting(kind="f1"),
-            "official_average_accuracy": float(np.nanmean(official_weighted_curves["acc"])),
+            "completed_tasks": completed_task_count,
+            "average_accuracy": self.metric_matrix.average_accuracy(train_index=last_index, kind="acc") if completed_task_count else float("nan"),
+            "average_forgetting": self._average_forgetting_until("acc", completed_task_count) if completed_task_count else float("nan"),
+            "average_auc": self.metric_matrix.average_accuracy(train_index=last_index, kind="auc") if completed_task_count else float("nan"),
+            "auc_forgetting": self._average_forgetting_until("auc", completed_task_count) if completed_task_count else float("nan"),
+            "average_ap": self.metric_matrix.average_accuracy(train_index=last_index, kind="ap") if completed_task_count else float("nan"),
+            "ap_forgetting": self._average_forgetting_until("ap", completed_task_count) if completed_task_count else float("nan"),
+            "average_f1": self.metric_matrix.average_accuracy(train_index=last_index, kind="f1") if completed_task_count else float("nan"),
+            "f1_forgetting": self._average_forgetting_until("f1", completed_task_count) if completed_task_count else float("nan"),
+            "official_average_accuracy": float(np.nanmean(official_weighted_curves["acc"])) if completed_task_count else float("nan"),
             "official_last_accuracy": float(official_weighted_curves["acc"][-1]) if official_weighted_curves["acc"] else float("nan"),
             "official_weighted_curves": official_weighted_curves,
             "tables": tables,
         }
         with open(self.output_dir / "summary.json", "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
-        self._log_summary_tables(summary)
+        if log_tables:
+            self._log_summary_tables(summary)
         return summary
 
     @staticmethod

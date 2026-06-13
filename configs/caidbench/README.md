@@ -28,8 +28,10 @@ caid-train \
 
 By default, checkpoints contain only tensor state dicts and scalar/list/dict
 metadata, so they can be loaded with `torch.load(..., weights_only=True)`.
-Runs save `base.pt` after the first task and keep updating `last.pt`; per-task
-`task_*.pt` files are disabled unless you set `checkpoint.save_each_task=true`.
+Runs save `task_{index}.pt` after every continual task/stage, save `base.pt`
+after the first task, and keep updating `last.pt`. Set
+`checkpoint.save_each_task=false` only when you explicitly want to skip
+per-task checkpoint files.
 
 Resume from the last completed task with:
 
@@ -44,7 +46,7 @@ For a quick debug pass where each epoch only consumes a few train batches:
 ```bash
 caid-train \
   --config configs/caidbench/finetune_default.yaml \
-  --override logging.backend=none train.epochs=1 train.debug_max_steps_per_epoch=2
+  --override logging.backend=none train.epochs=1 train.debug_max_steps_per_epoch=2 eval.max_batches_per_task=2
 ```
 
 Eval/test dataloaders default to single-process loading
@@ -59,6 +61,19 @@ train:
   epochs: 1
   debug_max_steps_per_epoch: 2
   eval_num_workers: 0
+eval:
+  # seen: standard lower-triangle CL eval; all: full matrix including future tasks;
+  # current: fastest smoke mode with only the diagonal task.
+  scope: seen
+  max_batches_per_task: 2
+```
+
+For future-task generalization, run a full matrix:
+
+```bash
+caid-train \
+  --config configs/caidbench/finetune_default.yaml \
+  --override eval.scope=all
 ```
 
 If the CAIDBench Arrow dataset is stored somewhere else, override only the data

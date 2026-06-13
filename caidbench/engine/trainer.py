@@ -66,11 +66,18 @@ class Trainer:
         method_cfg = dict(cfg.get("method", {}))
         method_name = method_cfg.pop("name", cfg.get("method_name", "finetune"))
         train_cfg = cfg.get("train", {})
+        eval_cfg = cfg.get("eval", {}) or {}
+        if not isinstance(eval_cfg, Mapping):
+            raise TypeError("eval config must be a mapping")
         debug_step_limit = train_cfg.get(
             "debug_max_steps_per_epoch",
             cfg.get("debug_max_steps_per_epoch", method_cfg.get("debug_max_steps_per_epoch")),
         )
         self.debug_max_steps_per_epoch = _optional_positive_int(debug_step_limit)
+        self.eval_scope = str(eval_cfg.get("scope", "seen")).lower()
+        if self.eval_scope not in {"seen", "all", "current"}:
+            raise ValueError("eval.scope must be one of: seen, all, current")
+        self.eval_max_batches_per_task = _optional_positive_int(eval_cfg.get("max_batches_per_task"))
         self.method = build_method(method_name, **method_cfg).to(self.device)
         self.method._runtime_debug_max_steps_per_epoch = self.debug_max_steps_per_epoch
         self.max_epochs = int(train_cfg.get("epochs", 1))
@@ -90,7 +97,7 @@ class Trainer:
         self.save_task_checkpoints = bool(
             checkpoint_cfg.get(
                 "save_each_task",
-                checkpoint_cfg.get("save_task_checkpoints", checkpoint_cfg.get("save_intermediate", False)),
+                checkpoint_cfg.get("save_task_checkpoints", checkpoint_cfg.get("save_intermediate", True)),
             )
         )
         self.train_log_interval = int(train_cfg.get("log_interval", 50))
@@ -338,7 +345,8 @@ class Trainer:
         y_list: list[torch.Tensor] = []
         iterator = iter(loader)
         try:
-            for batch in iterator:
+            batches = iterator if self.eval_max_batches_per_task is None else islice(iterator, self.eval_max_batches_per_task)
+            for batch in batches:
                 batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
                 out = self.method.predict(batch)
                 logits_list.append(out["logits"].detach().cpu())
@@ -352,6 +360,27 @@ class Trainer:
         logits = torch.cat(logits_list, dim=0)
         y = torch.cat(y_list, dim=0)
         return {**summarize_logits(logits, y), "num_samples": int(y.numel())}
+
+    def _eval_task_indices(self, train_index: int) -> range:
+        if self.eval_scope == "all":
+            return range(len(self.scenario.tasks))
+        if self.eval_scope == "current":
+            return range(train_index, train_index + 1)
+        return range(train_index + 1)
+
+    @staticmethod
+    def _nanmean(values: np.ndarray) -> float:
+        values = np.asarray(values, dtype=float)
+        valid = values[~np.isnan(values)]
+        return float(valid.mean()) if valid.size else float("nan")
+
+    def _seen_row_average(self, train_index: int, kind: str) -> float:
+        matrix = self.metric_matrix._matrix(kind)
+        return self._nanmean(matrix[train_index, : train_index + 1])
+
+    def _future_row_average(self, train_index: int, kind: str) -> float:
+        matrix = self.metric_matrix._matrix(kind)
+        return self._nanmean(matrix[train_index, train_index + 1 :])
 
     @staticmethod
     def _weighted_records(records: Iterable[Mapping[str, Any]], key: str) -> float:
@@ -371,6 +400,8 @@ class Trainer:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
             if self.debug_max_steps_per_epoch is not None:
                 self.logger.info("Debug train step limit enabled: max_steps_per_epoch=%d", self.debug_max_steps_per_epoch)
+            if self.eval_max_batches_per_task is not None:
+                self.logger.info("Debug eval batch limit enabled: max_batches_per_task=%d", self.eval_max_batches_per_task)
             start_task_index = min(max(self.resume_task_index + 1, 0), len(self.scenario.tasks))
             if start_task_index > 0:
                 self.logger.info("Resuming from completed task_index=%d; next_task_index=%d", self.resume_task_index, start_task_index)
@@ -387,7 +418,7 @@ class Trainer:
                 self.method.after_task(task, train_loader)
                 eval_payload: dict[str, float | int] = {}
                 eval_rows: list[dict[str, Any]] = []
-                for j in range(i + 1):
+                for j in self._eval_task_indices(i):
                     test_loader = self.dataloader(j, "test", shuffle=False)
                     try:
                         metrics = self.evaluate_loader(test_loader)
@@ -408,19 +439,34 @@ class Trainer:
                     }
                     self.eval_records.append(record)
                     eval_rows.append(record)
+                seen_eval_rows = [row for row in eval_rows if int(row["eval_task"]) <= i]
+                future_eval_rows = [row for row in eval_rows if int(row["eval_task"]) > i]
                 eval_payload.update(
                     {
-                        "eval/average_accuracy": self.metric_matrix.average_accuracy(train_index=i, kind="acc"),
-                        "eval/average_auc": self.metric_matrix.average_accuracy(train_index=i, kind="auc"),
-                        "eval/average_ap": self.metric_matrix.average_accuracy(train_index=i, kind="ap"),
-                        "eval/average_f1": self.metric_matrix.average_accuracy(train_index=i, kind="f1"),
-                        "eval/official_weighted_accuracy": self._weighted_records(eval_rows, "acc"),
-                        "eval/official_weighted_auc": self._weighted_records(eval_rows, "auc"),
-                        "eval/official_weighted_ap": self._weighted_records(eval_rows, "ap"),
-                        "eval/official_weighted_f1": self._weighted_records(eval_rows, "f1"),
+                        "eval/average_accuracy": self._seen_row_average(i, "acc"),
+                        "eval/average_auc": self._seen_row_average(i, "auc"),
+                        "eval/average_ap": self._seen_row_average(i, "ap"),
+                        "eval/average_f1": self._seen_row_average(i, "f1"),
+                        "eval/official_weighted_accuracy": self._weighted_records(seen_eval_rows, "acc"),
+                        "eval/official_weighted_auc": self._weighted_records(seen_eval_rows, "auc"),
+                        "eval/official_weighted_ap": self._weighted_records(seen_eval_rows, "ap"),
+                        "eval/official_weighted_f1": self._weighted_records(seen_eval_rows, "f1"),
                         "eval/after_task": i,
                     }
                 )
+                if future_eval_rows:
+                    eval_payload.update(
+                        {
+                            "eval/future_average_accuracy": self._future_row_average(i, "acc"),
+                            "eval/future_average_auc": self._future_row_average(i, "auc"),
+                            "eval/future_average_ap": self._future_row_average(i, "ap"),
+                            "eval/future_average_f1": self._future_row_average(i, "f1"),
+                            "eval/future_weighted_accuracy": self._weighted_records(future_eval_rows, "acc"),
+                            "eval/future_weighted_auc": self._weighted_records(future_eval_rows, "auc"),
+                            "eval/future_weighted_ap": self._weighted_records(future_eval_rows, "ap"),
+                            "eval/future_weighted_f1": self._weighted_records(future_eval_rows, "f1"),
+                        }
+                    )
                 self._log_eval_console_table(eval_rows, eval_payload)
                 self._log_eval_table(eval_rows, step=i)
                 self.log_metrics(eval_payload, step=i)
@@ -428,20 +474,28 @@ class Trainer:
                 self._write_outputs(log_tables=False)
                 self._active_train_task_index = None
             summary = self._write_outputs(log_tables=True)
-            self.log_metrics(
-                {
-                    "summary/average_accuracy": summary["average_accuracy"],
-                    "summary/average_forgetting": summary["average_forgetting"],
-                    "summary/average_auc": summary["average_auc"],
-                    "summary/auc_forgetting": summary["auc_forgetting"],
-                    "summary/average_ap": summary["average_ap"],
-                    "summary/ap_forgetting": summary["ap_forgetting"],
-                    "summary/average_f1": summary["average_f1"],
-                    "summary/f1_forgetting": summary["f1_forgetting"],
-                    "summary/official_average_accuracy": summary["official_average_accuracy"],
-                    "summary/official_last_accuracy": summary["official_last_accuracy"],
-                }
-            )
+            summary_payload = {
+                "summary/average_accuracy": summary["average_accuracy"],
+                "summary/average_forgetting": summary["average_forgetting"],
+                "summary/average_auc": summary["average_auc"],
+                "summary/auc_forgetting": summary["auc_forgetting"],
+                "summary/average_ap": summary["average_ap"],
+                "summary/ap_forgetting": summary["ap_forgetting"],
+                "summary/average_f1": summary["average_f1"],
+                "summary/f1_forgetting": summary["f1_forgetting"],
+                "summary/official_average_accuracy": summary["official_average_accuracy"],
+                "summary/official_last_accuracy": summary["official_last_accuracy"],
+            }
+            if self.eval_scope == "all":
+                summary_payload.update(
+                    {
+                        "summary/future_average_accuracy": summary["future_average_accuracy"],
+                        "summary/future_average_auc": summary["future_average_auc"],
+                        "summary/future_average_ap": summary["future_average_ap"],
+                        "summary/future_average_f1": summary["future_average_f1"],
+                    }
+                )
+            self.log_metrics(summary_payload)
             self.logger.info(
                 "Finished: AA=%.4f AF=%.4f AUC_AA=%.4f AP_AA=%.4f F1_AA=%.4f OfficialAbar=%.4f OfficialAB=%.4f",
                 summary["average_accuracy"],
@@ -546,39 +600,84 @@ class Trainer:
     def _write_outputs(self, *, log_tables: bool = True) -> dict[str, Any]:
         completed_task_count = self._completed_task_count()
         tables = self.metric_matrix.to_tables()
+        output_task_count = len(self.scenario.tasks) if self.eval_scope == "all" else completed_task_count
+        output_task_names = [t.name for t in self.scenario.tasks[:output_task_count]]
+        output_tables = {
+            kind: [row[:output_task_count] for row in tables[kind][:completed_task_count]]
+            for kind in ("acc", "auc", "ap", "f1")
+        }
         for kind in ("acc", "auc", "ap", "f1"):
-            pd.DataFrame(tables[kind], columns=[t.name for t in self.scenario.tasks]).to_csv(self.output_dir / f"{kind}_matrix.csv", index=False)
+            pd.DataFrame(output_tables[kind], columns=output_task_names).to_csv(
+                self.output_dir / f"{kind}_matrix.csv",
+                index_label="after_task",
+            )
         pd.DataFrame(self.eval_records).to_csv(self.output_dir / "eval_details.csv", index=False)
         task_rows = [t.__dict__ for t in self.scenario.tasks]
         pd.DataFrame(task_rows).to_csv(self.output_dir / "task_details.csv", index=False)
         official_weighted_curves = {}
         for kind in ("acc", "auc", "ap", "f1"):
             official_weighted_curves[kind] = [
-                self._weighted_records((record for record in self.eval_records if int(record["after_task"]) == i), kind)
+                self._weighted_records(
+                    (
+                        record
+                        for record in self.eval_records
+                        if int(record["after_task"]) == i and int(record["eval_task"]) <= i
+                    ),
+                    kind,
+                )
                 for i in range(completed_task_count)
             ]
+        future_weighted_curves = {}
+        if self.eval_scope == "all":
+            for kind in ("acc", "auc", "ap", "f1"):
+                future_weighted_curves[kind] = [
+                    self._weighted_records(
+                        (
+                            record
+                            for record in self.eval_records
+                            if int(record["after_task"]) == i and int(record["eval_task"]) > i
+                        ),
+                        kind,
+                    )
+                    for i in range(completed_task_count)
+                ]
         pd.DataFrame(
             [
                 {"after_task": i, **{kind: official_weighted_curves[kind][i] for kind in ("acc", "auc", "ap", "f1")}}
                 for i in range(completed_task_count)
             ]
         ).to_csv(self.output_dir / "official_weighted_curves.csv", index=False)
+        if future_weighted_curves:
+            pd.DataFrame(
+                [
+                    {"after_task": i, **{kind: future_weighted_curves[kind][i] for kind in ("acc", "auc", "ap", "f1")}}
+                    for i in range(completed_task_count)
+                ]
+            ).to_csv(self.output_dir / "future_weighted_curves.csv", index=False)
         last_index = completed_task_count - 1
         summary = {
             "tasks": [t.__dict__ for t in self.scenario.tasks],
             "completed_tasks": completed_task_count,
-            "average_accuracy": self.metric_matrix.average_accuracy(train_index=last_index, kind="acc") if completed_task_count else float("nan"),
+            "eval_scope": self.eval_scope,
+            "eval_max_batches_per_task": self.eval_max_batches_per_task,
+            "average_accuracy": self._seen_row_average(last_index, "acc") if completed_task_count else float("nan"),
             "average_forgetting": self._average_forgetting_until("acc", completed_task_count) if completed_task_count else float("nan"),
-            "average_auc": self.metric_matrix.average_accuracy(train_index=last_index, kind="auc") if completed_task_count else float("nan"),
+            "average_auc": self._seen_row_average(last_index, "auc") if completed_task_count else float("nan"),
             "auc_forgetting": self._average_forgetting_until("auc", completed_task_count) if completed_task_count else float("nan"),
-            "average_ap": self.metric_matrix.average_accuracy(train_index=last_index, kind="ap") if completed_task_count else float("nan"),
+            "average_ap": self._seen_row_average(last_index, "ap") if completed_task_count else float("nan"),
             "ap_forgetting": self._average_forgetting_until("ap", completed_task_count) if completed_task_count else float("nan"),
-            "average_f1": self.metric_matrix.average_accuracy(train_index=last_index, kind="f1") if completed_task_count else float("nan"),
+            "average_f1": self._seen_row_average(last_index, "f1") if completed_task_count else float("nan"),
             "f1_forgetting": self._average_forgetting_until("f1", completed_task_count) if completed_task_count else float("nan"),
             "official_average_accuracy": float(np.nanmean(official_weighted_curves["acc"])) if completed_task_count else float("nan"),
             "official_last_accuracy": float(official_weighted_curves["acc"][-1]) if official_weighted_curves["acc"] else float("nan"),
             "official_weighted_curves": official_weighted_curves,
-            "tables": tables,
+            "future_average_accuracy": self._future_row_average(last_index, "acc") if self.eval_scope == "all" and completed_task_count else float("nan"),
+            "future_average_auc": self._future_row_average(last_index, "auc") if self.eval_scope == "all" and completed_task_count else float("nan"),
+            "future_average_ap": self._future_row_average(last_index, "ap") if self.eval_scope == "all" and completed_task_count else float("nan"),
+            "future_average_f1": self._future_row_average(last_index, "f1") if self.eval_scope == "all" and completed_task_count else float("nan"),
+            "future_weighted_curves": future_weighted_curves,
+            "tables": output_tables,
+            "full_tables": tables,
         }
         with open(self.output_dir / "summary.json", "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, ensure_ascii=False)
@@ -693,7 +792,8 @@ class Trainer:
         )
 
     def _log_summary_tables(self, summary: Mapping[str, Any]) -> None:
-        task_names = [t.name for t in self.scenario.tasks]
+        table_width = len(summary["tables"]["acc"][0]) if summary.get("tables", {}).get("acc") else 0
+        task_names = [t.name for t in self.scenario.tasks[:table_width]]
         headers = ["after_task"] + task_names
         for kind in ("acc", "auc", "ap", "f1"):
             rows = [

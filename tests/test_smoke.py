@@ -249,17 +249,21 @@ def test_finetune_smoke(tmp_path):
     assert (out_dir / "train.log").exists()
     assert (out_dir / "base.pt").exists()
     assert (out_dir / "last.pt").exists()
-    assert not list(out_dir.glob("task_*.pt"))
+    assert (out_dir / "task_0.pt").exists()
+    assert (out_dir / "task_1.pt").exists()
+    with open(out_dir / "f1_matrix.csv", "r", encoding="utf-8") as fp:
+        rows = [line.strip() for line in fp if line.strip()]
+    assert rows[0] == "after_task,task0,task1"
+    assert len(rows) == 3
 
 
-def test_per_task_checkpoints_can_be_enabled(tmp_path):
+def test_per_task_checkpoints_can_be_disabled(tmp_path):
     cfg = base_cfg(tmp_path, "finetune")
-    cfg["checkpoint"] = {"save_each_task": True}
+    cfg["checkpoint"] = {"save_each_task": False}
     trainer = Trainer(cfg)
     trainer.run()
 
-    assert (trainer.output_dir / "task_0.pt").exists()
-    assert (trainer.output_dir / "task_1.pt").exists()
+    assert not list(trainer.output_dir.glob("task_*.pt"))
     assert (trainer.output_dir / "base.pt").exists()
     assert (trainer.output_dir / "last.pt").exists()
 
@@ -360,6 +364,63 @@ def test_eval_num_workers_override_enables_eval_workers(tmp_path, monkeypatch):
 
     assert [call["num_workers"] for call in calls] == [2, 1, 1]
     assert [call["persistent_workers"] for call in calls] == [True, False, False]
+
+
+def test_eval_scope_all_populates_future_task_columns(tmp_path):
+    cfg = base_cfg(tmp_path, "finetune")
+    cfg["eval"] = {"scope": "all"}
+    trainer = Trainer(cfg)
+    summary = trainer.run()
+
+    assert len(trainer.eval_records) == 4
+    assert not np.isnan(trainer.metric_matrix.f1[0, 1])
+    assert summary["eval_scope"] == "all"
+    assert summary["tables"]["f1"][0][1] is not None
+    assert "future_weighted_curves" in summary
+    with open(trainer.output_dir / "f1_matrix.csv", "r", encoding="utf-8") as fp:
+        rows = [line.strip() for line in fp if line.strip()]
+    assert rows[0] == "after_task,task0,task1"
+    assert rows[1].split(",")[2] != ""
+
+
+def test_eval_scope_current_only_populates_diagonal(tmp_path):
+    cfg = base_cfg(tmp_path, "finetune")
+    cfg["eval"] = {"scope": "current"}
+    trainer = Trainer(cfg)
+    trainer.run()
+
+    assert len(trainer.eval_records) == 2
+    assert np.isnan(trainer.metric_matrix.acc[1, 0])
+    assert not np.isnan(trainer.metric_matrix.acc[1, 1])
+
+
+def test_eval_max_batches_per_task_limits_eval_samples(tmp_path):
+    data_root = make_protocol_arrow(tmp_path)
+    cfg = {
+        "seed": 0,
+        "device": "cpu",
+        "output_dir": str(tmp_path / "out_eval_limit"),
+        "logging": {"backend": "none"},
+        "scenario": {
+            "data": {"backend": "aid_arrow", "path": str(data_root), "image_column": "image"},
+            "protocol": {
+                "tasks": [{"id": "d0", "name": "D0", "numeric_id": 0, "filter": {"include": {"domain": "d0"}}}],
+            },
+            "transform": image_transform(16),
+        },
+        "train": {"epochs": 1, "batch_size": 2, "num_workers": 0, "optimizer": {"type": "adamw", "lr": 1e-3}},
+        "method": {
+            "name": "finetune",
+            "num_classes": 2,
+            "detector_cfg": {"num_classes": 2, "backbone": {"type": "small_conv", "out_dim": 8}},
+        },
+    }
+    cfg["eval"] = {"max_batches_per_task": 1}
+    trainer = Trainer(cfg)
+    trainer.run()
+
+    assert trainer.scenario.tasks[0].num_test == 4
+    assert {record["num_samples"] for record in trainer.eval_records} == {2}
 
 
 def test_preextracted_feature_interfaces_are_rejected(tmp_path):

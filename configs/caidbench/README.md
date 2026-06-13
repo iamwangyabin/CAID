@@ -49,14 +49,13 @@ caid-train \
   --override logging.backend=none train.epochs=1 train.debug_max_steps_per_epoch=2 eval.max_batches_per_task=2
 ```
 
-On the lab server where the CAIDBench Arrow package is stored at
-`/home/home/yabin/CAIDBench`, use:
+The CAIDBench configs default to the lab-server Arrow package at
+`/home/home/yabin/CAIDBench`. For a quick server smoke run, use:
 
 ```bash
 caid-train \
   --config configs/caidbench/finetune_default.yaml \
   --override \
-    scenario.data.path=/home/home/yabin/CAIDBench \
     logging.backend=none \
     train.epochs=1 \
     train.debug_max_steps_per_epoch=2 \
@@ -121,7 +120,6 @@ For a full matrix smoke run with bounded evaluation cost:
 caid-train \
   --config configs/caidbench/finetune_default.yaml \
   --override \
-    scenario.data.path=/home/home/yabin/CAIDBench \
     logging.backend=none \
     train.epochs=1 \
     train.debug_max_steps_per_epoch=2 \

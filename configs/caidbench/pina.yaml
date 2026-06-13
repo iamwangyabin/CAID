@@ -3,7 +3,7 @@ output_dir: outputs/caidbench/pina
 scenario:
   data:
     backend: caidbench
-    path: /home/home/yabin/caidbench_datasets_merged
+    path: /home/home/yabin/CAIDBench
     image_column: image
     label_column: label
     generator_column: generator_name
@@ -13,9 +13,9 @@ scenario:
     task_hint_mode: dir
     domain_from: dir_name
     remote: null
-  protocol: protocols/examples/caidbench_generator_incremental.yaml
+  protocol: protocols/caidbench/default_protocol.yaml
 method:
   dataset: caidbench
-  total_sessions: 54
-  task_name: ["ProGAN", "DeepFakes", "BigGAN", "SC-FEGAN", "Pluralistic", "ATVG-Net", "MaskGAN", "FaceShifter", "StarGAN2", "DiscoFaceGAN", "ADM", "LaMa", "VQDM / VQ-Diffusion", "GLIDE", "RePaint-LDM", "RePaint-P2", "Wukong", "SD1.4", "SD1.5", "SD2.1", "Midjourney v5", "SD1.5 DreamShaper", "SDXL-base", "DALL-E 3", "Realistic Vision v5.1 Novae", "SDXL Juggernaut", "Midjourney v6", "Animagine XL 3.0", "Playground-v2.5", "Animagine XL 3.1", "Pony", "Kolors", "FLUX.1", "Imagen 3.0", "FLUX.1.1 Pro", "NoobAI", "SD3.5", "Grok-2-Image-1212", "Animagine XL 4.0", "Ideogram 3.0", "GPT-Image-1", "HiDream-I1", "Seedream", "Imagen-4", "Nano Banana", "Qwen-Image", "Chroma", "Tiny-Random-Sana", "FLUX.2-dev", "FLUX.2 Klein 4B", "CyberRealistic XL v9.0", "Anima", "SDXL RealVisXL v5", "Nano Banana 2"]
-  multiclass: [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false]
+  total_sessions: 90
+  task_name: null
+  multiclass: null

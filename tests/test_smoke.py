@@ -15,6 +15,7 @@ import pytest
 import torch
 
 import caidbench.engine.trainer as trainer_mod
+from caidbench.config import load_config
 from caidbench.data.scenario import ContinualScenario
 from caidbench.engine import Trainer
 from caidbench.engine.trainer import _format_duration
@@ -132,6 +133,23 @@ def test_registry_contains_methods():
         "hdp",
         "sur_lid",
     }.issubset(set(list_methods()))
+
+
+def test_caidbench_configs_default_to_generated_protocol():
+    expected_protocol = "protocols/caidbench/default_protocol.yaml"
+    expected_data_root = "/home/home/yabin/CAIDBench"
+    for path in sorted(Path("configs/caidbench").glob("*.yaml")):
+        cfg = load_config(path)
+        scenario_cfg = cfg.get("scenario", {})
+        data_cfg = scenario_cfg.get("data", {})
+        if data_cfg.get("backend") == "caidbench":
+            assert scenario_cfg.get("protocol") == expected_protocol, path
+            assert data_cfg.get("path") == expected_data_root, path
+        method_cfg = cfg.get("method", {})
+        if "total_sessions" in method_cfg:
+            assert method_cfg["total_sessions"] == 90, path
+        if method_cfg.get("dataset") == "caidbench" and "task_name" in method_cfg:
+            assert method_cfg["task_name"] is None, path
 
 
 def test_train_eta_duration_formatting():

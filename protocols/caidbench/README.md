@@ -24,6 +24,6 @@ The dataset root lives in the runnable config:
 scenario:
   data:
     backend: caidbench
-    path: /home/home/yabin/caidbench_datasets_merged
+    path: /home/home/yabin/CAIDBench
   protocol: protocols/caidbench/default_protocol.yaml
 ```

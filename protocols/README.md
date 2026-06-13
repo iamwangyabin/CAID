@@ -32,7 +32,7 @@ The matching dataset root is in the same config:
 scenario:
   data:
     backend: caidbench
-    path: /home/home/yabin/caidbench_datasets_merged
+    path: /home/home/yabin/CAIDBench
 ```
 
 The selected index is declared by the protocol file itself:

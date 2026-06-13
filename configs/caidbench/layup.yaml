@@ -3,7 +3,7 @@ output_dir: outputs/caidbench/layup
 scenario:
   data:
     backend: caidbench
-    path: /home/home/yabin/caidbench_datasets_merged
+    path: /home/home/yabin/CAIDBench
     image_column: image
     label_column: label
     generator_column: generator_name
@@ -13,4 +13,4 @@ scenario:
     task_hint_mode: dir
     domain_from: dir_name
     remote: null
-  protocol: protocols/examples/caidbench_generator_incremental.yaml
+  protocol: protocols/caidbench/default_protocol.yaml

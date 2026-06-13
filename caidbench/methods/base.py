@@ -40,15 +40,31 @@ def merge_batches(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _coerce_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "false"}:
+        return None
+    parsed = int(value)
+    return parsed if parsed > 0 else None
+
+
+def _debug_step_limit(owner: Any) -> int | None:
+    for name in ("_runtime_debug_max_steps_per_epoch", "debug_max_steps_per_epoch", "_debug_max_steps_per_epoch"):
+        value = getattr(owner, name, None)
+        limit = _coerce_positive_int(value)
+        if limit is not None:
+            return limit
+    return None
+
+
 def effective_train_batches(trainer: Any, train_loader: Any) -> int:
     fn = getattr(trainer, "effective_train_batches", None)
     if callable(fn):
         return int(fn(train_loader))
-    limit = getattr(trainer, "debug_max_steps_per_epoch", None)
+    limit = _debug_step_limit(trainer)
     if limit is not None:
-        limit_int = int(limit)
-        if limit_int > 0:
-            return min(len(train_loader), limit_int)
+        return min(len(train_loader), limit)
     return len(train_loader)
 
 
@@ -57,11 +73,9 @@ def iter_limited_train_batches(trainer: Any, train_loader: Any) -> Iterable[tupl
     if callable(fn):
         return fn(train_loader)
     batches = enumerate(train_loader, start=1)
-    limit = getattr(trainer, "debug_max_steps_per_epoch", None)
+    limit = _debug_step_limit(trainer)
     if limit is not None:
-        limit_int = int(limit)
-        if limit_int > 0:
-            return islice(batches, limit_int)
+        return islice(batches, limit)
     return batches
 
 
@@ -107,6 +121,7 @@ class ContinualMethod(nn.Module, ABC):
         self.detector = build_detector(detector_cfg)
         self.num_classes = int(num_classes)
         self.current_task_id: int | None = None
+        self._runtime_debug_max_steps_per_epoch: int | None = None
         self.extra_cfg = dict(kwargs)
 
     @property

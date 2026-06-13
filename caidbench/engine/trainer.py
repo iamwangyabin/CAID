@@ -72,6 +72,7 @@ class Trainer:
         )
         self.debug_max_steps_per_epoch = _optional_positive_int(debug_step_limit)
         self.method = build_method(method_name, **method_cfg).to(self.device)
+        self.method._runtime_debug_max_steps_per_epoch = self.debug_max_steps_per_epoch
         self.max_epochs = int(train_cfg.get("epochs", 1))
         self.batch_size = int(train_cfg.get("batch_size", 32))
         self.num_workers = int(train_cfg.get("num_workers", 0))
@@ -345,6 +346,8 @@ class Trainer:
     def run(self) -> dict[str, Any]:
         try:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
+            if self.debug_max_steps_per_epoch is not None:
+                self.logger.info("Debug train step limit enabled: max_steps_per_epoch=%d", self.debug_max_steps_per_epoch)
             for i, task in enumerate(self.scenario.tasks):
                 self.logger.info("=== Task %d/%d: %s train=%d test=%d ===", i + 1, len(self.scenario.tasks), task.name, task.num_train, task.num_test)
                 self._active_train_task_index = float(getattr(task, "task_id", i))

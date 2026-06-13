@@ -10,7 +10,7 @@ import torch.nn.functional as F
 
 from ..data.loader import build_dataloader
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, freeze_module
+from .base import ContinualMethod, batch_to_device, freeze_module, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -55,7 +55,7 @@ class FrozenFeatureMethod(ContinualMethod):
         self.eval()
         features: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
-        for batch in loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, loader):
             batch = batch_to_device(batch, self.device)
             features.append(self.extract_features(batch["x"]).detach().cpu())
             labels.append(_local_targets(batch["y"].detach().cpu(), self.num_classes))
@@ -430,7 +430,7 @@ class RanPACMethod(FrozenFeatureMethod):
             correct = 0
             total = 0
             batches = 0
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
                 batch = batch_to_device(batch, self.device)
                 logits = self.detector(batch["x"])["logits"]
                 y = _local_targets(batch["y"], self.num_classes).to(logits.device)

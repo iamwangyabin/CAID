@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ..models.adapters import MultiSceneLoRAHead
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches
 
 
 @register_method("saido")
@@ -138,8 +138,8 @@ class SAIDOMethod(ContinualMethod):
         accum: dict[str, torch.Tensor] = {}
         grad_accum: dict[str, torch.Tensor] = {}
         self.train()
-        for i, batch in enumerate(train_loader):
-            if i >= self.importance_batches:
+        for batch_idx, batch in iter_limited_train_batches(self, train_loader):
+            if batch_idx > self.importance_batches:
                 break
             batch = batch_to_device(batch, self.device)
             out = self.predict(batch)

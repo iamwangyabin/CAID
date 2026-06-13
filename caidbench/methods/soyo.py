@@ -139,7 +139,7 @@ class FrozenFeatureMethod(ContinualMethod):
         self.eval()
         features: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
-        for batch in loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, loader):
             batch = batch_to_device(batch, self.device)
             features.append(self.extract_features(batch["x"]).detach().cpu())
             labels.append(_local_targets(batch["y"].detach().cpu(), self.num_classes))
@@ -706,7 +706,7 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         was_training = self.training
         self.eval()
         features = []
-        for batch in loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, loader):
             batch = batch_to_device(batch, self.device)
             features.append(self.official_network.extract_vector(batch["x"]).detach().cpu())
         if was_training:
@@ -835,7 +835,10 @@ class SOYOMethod(DomainRoutedFeatureMethod):
         batch_size = max(self.selector_batch_size, 1)
         for _epoch in range(max(self.soyo_epoch, 1)):
             order = torch.randperm(x.shape[0], device=x.device)
-            for start in range(0, x.shape[0], batch_size):
+            step_limit = getattr(self, "_debug_max_steps_per_epoch", getattr(self, "_runtime_debug_max_steps_per_epoch", None))
+            for step_idx, start in enumerate(range(0, x.shape[0], batch_size), start=1):
+                if step_limit is not None and step_idx > step_limit:
+                    break
                 idx = order[start : start + batch_size]
                 optimizer.zero_grad(set_to_none=True)
                 loss = F.cross_entropy(self.selector(x[idx])[:, : len(keys)], y[idx])

@@ -16,7 +16,7 @@ from sklearn.cluster import KMeans
 
 from ..data.object_labels import parse_object_labels
 from ..registry import register_method
-from .base import ContinualMethod, build_optimizer
+from .base import ContinualMethod, build_optimizer, effective_train_batches, iter_limited_train_batches
 
 
 def _clip_model_dtype(clip_model: nn.Module) -> torch.dtype:
@@ -839,8 +839,8 @@ class Prompt2GuardMethod(ContinualMethod):
         real_features: list[torch.Tensor] = []
         fake_features: list[torch.Tensor] = []
         self.eval()
-        total_batches = len(train_loader)
-        for batch_idx, batch in enumerate(train_loader, start=1):
+        total_batches = effective_train_batches(self, train_loader)
+        for batch_idx, batch in iter_limited_train_batches(self, train_loader):
             x = batch["x"].to(self.device)
             y = batch["y"].long()
             z = self.network.extract_vector(x).detach().cpu()

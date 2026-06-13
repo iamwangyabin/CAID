@@ -524,7 +524,7 @@ class SURLIDMethod(ContinualMethod):
             raise RuntimeError("SUR-LID requires train_loader to build sparse-uniform replay memory")
         self.eval()
         xs, ys, feats, shuffle_feats = [], [], [], []
-        for batch in train_loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, train_loader):
             batch = batch_to_device(batch, self.device)
             x = batch["x"]
             xs.append(x.detach().cpu())

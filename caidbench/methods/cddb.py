@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ..memory import ReplayBuffer
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, merge_batches
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches, merge_batches
 
 
 def cddb_binary_loss(logits: torch.Tensor, labels: torch.Tensor, mode: str = "ce") -> torch.Tensor:
@@ -69,5 +69,5 @@ class CDDBBenchmarkMethod(ContinualMethod):
 
     def after_task(self, task: Any, train_loader: Any | None = None) -> None:
         if train_loader is not None and self.memory.capacity > 0:
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(self, train_loader):
                 self.memory.add_batch(batch)

@@ -15,6 +15,7 @@ import pytest
 from caidbench.data.scenario import ContinualScenario
 from caidbench.engine import Trainer
 from caidbench.engine.trainer import _format_duration
+from caidbench.methods.base import effective_train_batches, iter_limited_train_batches
 from caidbench.models.backbones import build_backbone
 from caidbench.registry import list_methods
 from caidbench.utils.logging import get_logger
@@ -581,6 +582,14 @@ def test_debug_max_steps_per_epoch_limits_default_train_loop(tmp_path):
     trainer.run()
 
     assert trainer.global_step == 2
+
+
+def test_runtime_debug_limit_controls_method_side_loader_helpers():
+    owner = types.SimpleNamespace(_runtime_debug_max_steps_per_epoch=2)
+    loader = ["a", "b", "c", "d"]
+
+    assert effective_train_batches(owner, loader) == 2
+    assert list(iter_limited_train_batches(owner, loader)) == [(1, "a"), (2, "b")]
 
 
 def test_yaml_protocol_decouples_task_sequence_from_storage(tmp_path):

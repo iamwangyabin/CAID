@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from ..losses import feature_distillation_loss, kd_loss
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches
 
 
 @register_method("cored")
@@ -57,7 +57,7 @@ class CoReDMethod(ContinualMethod):
         counts: dict[tuple[int, int], int] = {}
         was_training = self.teacher.training
         self.teacher.eval()
-        for batch in train_loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, train_loader):
             batch = batch_to_device(batch, self.device)
             out = self.teacher(batch["x"])
             prob = F.softmax(out["logits"], dim=-1)

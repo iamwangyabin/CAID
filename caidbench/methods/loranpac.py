@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from ..data.loader import build_dataloader
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, freeze_module
+from .base import ContinualMethod, batch_to_device, freeze_module, iter_limited_train_batches
 
 
 def _local_targets(y: torch.Tensor, num_classes: int) -> torch.Tensor:
@@ -53,7 +53,7 @@ class FrozenFeatureMethod(ContinualMethod):
         self.eval()
         features: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
-        for batch in loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, loader):
             batch = batch_to_device(batch, self.device)
             features.append(self.extract_features(batch["x"]).detach().cpu())
             labels.append(_local_targets(batch["y"].detach().cpu(), self.num_classes))
@@ -246,7 +246,7 @@ class LoRanPACMethod(FrozenFeatureMethod):
         self.eval()
         task_samples = 0
         with torch.no_grad():
-            for batch in tsvd_loader:
+            for _batch_idx, batch in iter_limited_train_batches(trainer, tsvd_loader):
                 batch = batch_to_device(batch, self.device)
                 z = self.extract_features(batch["x"])
                 h = self.projector(z)

@@ -26,6 +26,22 @@ caid-train \
   --override logging.backend=none
 ```
 
+For a quick debug pass where each epoch only consumes a few train batches:
+
+```bash
+caid-train \
+  --config configs/caidbench/finetune_default.yaml \
+  --override logging.backend=none train.epochs=1 train.debug_max_steps_per_epoch=2
+```
+
+The same value can be placed in YAML:
+
+```yaml
+train:
+  epochs: 1
+  debug_max_steps_per_epoch: 2
+```
+
 If the CAIDBench Arrow dataset is stored somewhere else, override only the data
 root:
 

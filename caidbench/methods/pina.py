@@ -137,7 +137,7 @@ class FrozenFeatureMethod(ContinualMethod):
         self.eval()
         features: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
-        for batch in loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, loader):
             batch = batch_to_device(batch, self.device)
             features.append(self.extract_features(batch["x"]).detach().cpu())
             labels.append(_local_targets(batch["y"].detach().cpu(), self.num_classes))

@@ -137,7 +137,7 @@ class FrozenFeatureMethod(ContinualMethod):
         self.eval()
         features: list[torch.Tensor] = []
         labels: list[torch.Tensor] = []
-        for batch in loader:
+        for _batch_idx, batch in iter_limited_train_batches(self, loader):
             batch = batch_to_device(batch, self.device)
             features.append(self.extract_features(batch["x"]).detach().cpu())
             labels.append(_local_targets(batch["y"].detach().cpu(), self.num_classes))
@@ -387,7 +387,7 @@ class DCEMethod(FrozenFeatureMethod):
         labels = self._dataset_labels(getattr(loader, "dataset", None))
         if labels is None and loader is not None:
             ys: list[torch.Tensor] = []
-            for batch in loader:
+            for _batch_idx, batch in iter_limited_train_batches(self, loader):
                 if "y" in batch:
                     ys.append(torch.as_tensor(batch["y"]).detach().cpu())
             if ys:

@@ -523,13 +523,13 @@ class SPromptsMethod(ContinualMethod):
             return None
         was_training = self.training
         self.eval()
-        total_batches = len(train_loader)
+        total_batches = effective_train_batches(self, train_loader)
         task_label = getattr(task, "name", task)
         self._log_stage(
             f"after_task start task={format_log_value(task_label)} task_index={self.current_task_id} stage=extract_features"
         )
         features = []
-        for batch_idx, batch in enumerate(train_loader, start=1):
+        for batch_idx, batch in iter_limited_train_batches(self, train_loader):
             x = batch["x"].to(self.device)
             features.append(self.image_encoder(x, None).detach().cpu())
             if batch_idx == 1 or batch_idx == total_batches or batch_idx % 50 == 0:

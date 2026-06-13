@@ -10,7 +10,7 @@ from ..losses import category_alignment_loss, feature_distillation_loss, kd_loss
 from ..memory import ReplayBuffer
 from ..models.adapters import AdapterBlock, grid_shuffle
 from ..registry import register_method
-from .base import ContinualMethod, batch_to_device, merge_batches
+from .base import ContinualMethod, batch_to_device, iter_limited_train_batches, merge_batches
 
 
 class AdapterDetector(nn.Module):
@@ -118,6 +118,6 @@ class ContentAgnosticAdapterCAIL(ContinualMethod):
 
     def after_task(self, task: Any, train_loader: Any | None = None) -> None:
         if train_loader is not None and self.memory.capacity > 0:
-            for batch in train_loader:
+            for _batch_idx, batch in iter_limited_train_batches(self, train_loader):
                 self.memory.add_batch(batch)
         self.teacher = self.frozen_detector_copy()

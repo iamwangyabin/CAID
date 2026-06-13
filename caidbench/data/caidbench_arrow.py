@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 import io
 import warnings
 from dataclasses import dataclass
@@ -101,6 +102,22 @@ class CAIDBenchArrowImageDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.indices)
+
+    def close(self) -> None:
+        for source, reader in self._reader_cache.values():
+            reader_close = getattr(reader, "close", None)
+            if callable(reader_close):
+                with suppress(Exception):
+                    reader_close()
+            source_close = getattr(source, "close", None)
+            if callable(source_close):
+                with suppress(Exception):
+                    source_close()
+        self._reader_cache.clear()
+
+    def __del__(self) -> None:
+        with suppress(Exception):
+            self.close()
 
     def _reader(self, file_id: int) -> Any:
         cached = self._reader_cache.get(file_id)

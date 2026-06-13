@@ -355,6 +355,9 @@ class Trainer:
             shutdown = getattr(iterator, "_shutdown_workers", None)
             if callable(shutdown):
                 shutdown()
+            dataset_close = getattr(getattr(loader, "dataset", None), "close", None)
+            if callable(dataset_close):
+                dataset_close()
         if not logits_list:
             return {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan"), "num_samples": 0}
         logits = torch.cat(logits_list, dim=0)

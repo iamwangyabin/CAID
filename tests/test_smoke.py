@@ -366,6 +366,58 @@ def test_eval_num_workers_override_enables_eval_workers(tmp_path, monkeypatch):
     assert [call["persistent_workers"] for call in calls] == [True, False, False]
 
 
+def test_caidbench_arrow_dataset_close_releases_reader_cache():
+    from caidbench.data.caidbench_arrow import CAIDBenchArrowImageDataset
+
+    class FakeClosable:
+        def __init__(self):
+            self.closed = 0
+
+        def close(self):
+            self.closed += 1
+
+    source = FakeClosable()
+    reader = FakeClosable()
+    dataset = CAIDBenchArrowImageDataset.__new__(CAIDBenchArrowImageDataset)
+    dataset._reader_cache = {0: (source, reader)}
+
+    dataset.close()
+
+    assert source.closed == 1
+    assert reader.closed == 1
+    assert dataset._reader_cache == {}
+    dataset.close()
+
+
+def test_evaluate_loader_closes_dataset_after_use():
+    class FakeMethod:
+        def eval(self):
+            return None
+
+    class FakeDataset:
+        def __init__(self):
+            self.closes = 0
+
+        def close(self):
+            self.closes += 1
+
+    class FakeLoader:
+        def __init__(self):
+            self.dataset = FakeDataset()
+
+        def __iter__(self):
+            return iter(())
+
+    trainer = Trainer.__new__(Trainer)
+    trainer.method = FakeMethod()
+    trainer.eval_max_batches_per_task = None
+
+    loader = FakeLoader()
+    trainer.evaluate_loader(loader)
+
+    assert loader.dataset.closes == 1
+
+
 def test_eval_scope_all_populates_future_task_columns(tmp_path):
     cfg = base_cfg(tmp_path, "finetune")
     cfg["eval"] = {"scope": "all"}

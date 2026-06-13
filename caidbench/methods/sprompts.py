@@ -256,6 +256,33 @@ class SPromptsMethod(ContinualMethod):
             return []
         return [int(milestone) for milestone in milestones]
 
+    def _checkpoint_excluded_prefixes(self) -> tuple[str, ...]:
+        return ("image_encoder.",) if not self.train_backbone else ()
+
+    def checkpoint_state_dict(self) -> dict[str, torch.Tensor]:
+        state = super().state_dict()
+        prefixes = self._checkpoint_excluded_prefixes()
+        if not prefixes:
+            return state
+        return {key: value for key, value in state.items() if not key.startswith(prefixes)}
+
+    def _prepare_checkpoint_state_modules(self, state: dict[str, torch.Tensor]) -> None:
+        task_keys: set[str] = set()
+        for key, value in state.items():
+            if key.startswith("prompt_pool."):
+                task_keys.add(key.split(".", 2)[1])
+            elif key.startswith("classifier_pool.") or key.startswith("text_prompt_pool."):
+                task_keys.add(key.split(".", 2)[1])
+            elif key.startswith("sprompt_centers_") and key not in self._buffers:
+                self.register_buffer(key, torch.empty_like(value))
+        for key in sorted(task_keys):
+            self._add_official_task(key)
+
+    def load_checkpoint_state_dict(self, state: dict[str, torch.Tensor]):
+        self._prepare_checkpoint_state_modules(state)
+        result = super().load_state_dict(state, strict=False)
+        return self._filter_load_result(result, missing_prefixes=self._checkpoint_excluded_prefixes())
+
     def _add_official_task(self, key: str) -> None:
         if key in self.prompt_pool:
             return

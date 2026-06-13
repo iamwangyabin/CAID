@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC
 import copy
 from itertools import islice
+from types import SimpleNamespace
 from typing import Any, Iterable, Mapping
 
 import torch
@@ -154,6 +155,18 @@ class ContinualMethod(nn.Module, ABC):
             value = getattr(self, name, None)
             if isinstance(value, ReplayBuffer) and isinstance(payload, dict):
                 value.load_state_dict(payload)
+
+    def checkpoint_state_dict(self) -> dict[str, torch.Tensor]:
+        return self.state_dict()
+
+    def load_checkpoint_state_dict(self, state: Mapping[str, Any]):
+        return self.load_state_dict(state, strict=False)
+
+    @staticmethod
+    def _filter_load_result(result: Any, *, missing_prefixes: tuple[str, ...] = ()) -> Any:
+        missing = [key for key in getattr(result, "missing_keys", []) if not key.startswith(missing_prefixes)]
+        unexpected = list(getattr(result, "unexpected_keys", []))
+        return SimpleNamespace(missing_keys=missing, unexpected_keys=unexpected)
 
     def predict(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:
         x = batch["x"].to(self.device)

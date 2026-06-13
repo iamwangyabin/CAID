@@ -519,7 +519,7 @@ class Trainer:
     def _save_intermediate(self, task_index: int) -> None:
         payload = {
             "checkpoint_version": 1,
-            "model": self.method.state_dict(),
+            "model": self.method.checkpoint_state_dict(),
             "auxiliary": self.method.auxiliary_state_dict(),
             "cfg": self.cfg,
             "task_index": task_index,
@@ -537,7 +537,7 @@ class Trainer:
 
     def _resume_from_checkpoint(self, path: str | Path) -> None:
         ckpt = load_checkpoint(path, map_location=self.device)
-        result = self.method.load_state_dict(ckpt["model"], strict=False)
+        result = self.method.load_checkpoint_state_dict(ckpt["model"])
         if result.missing_keys:
             self.logger.info("resume_from: missing keys %s", result.missing_keys)
         if result.unexpected_keys:

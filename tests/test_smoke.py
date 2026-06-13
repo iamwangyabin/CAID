@@ -611,8 +611,19 @@ def test_sprompts_smoke(tmp_path):
     cfg["method"]["epochs"] = 1
     cfg["method"]["milestones"] = [1]
     cfg["method"]["lrate_decay"] = 0.5
-    summary = Trainer(cfg).run()
+    trainer = Trainer(cfg)
+    summary = trainer.run()
     assert "average_accuracy" in summary
+    checkpoint = torch.load(trainer.output_dir / "last.pt", map_location="cpu", weights_only=True)
+    model_state = checkpoint["model"]
+    assert not any(key.startswith("image_encoder.") for key in model_state)
+    assert any(key.startswith("prompt_pool.") for key in model_state)
+    assert any(key.startswith("classifier_pool.") for key in model_state)
+    resume_cfg = copy.deepcopy(cfg)
+    resume_cfg["resume_from"] = str(trainer.output_dir / "last.pt")
+    resumed = Trainer(resume_cfg)
+    assert set(resumed.method.prompt_pool.keys()) == {"task0", "task1"}
+    assert "sprompt_centers_task0" in resumed.method._buffers
 
 
 def test_sprompts_prompt_token_sip_smoke(tmp_path):

@@ -614,6 +614,41 @@ class Prompt2GuardMethod(ContinualMethod):
         self.task_ids: list[int] = []
         self.current_task_index = -1
 
+    def _checkpoint_excluded_prefixes(self) -> tuple[str, ...]:
+        return ("network.clip_model.",)
+
+    def checkpoint_state_dict(self) -> dict[str, torch.Tensor]:
+        state = super().state_dict()
+        return {key: value for key, value in state.items() if not key.startswith(self._checkpoint_excluded_prefixes())}
+
+    def _prepare_checkpoint_state_modules(self, state: dict[str, torch.Tensor]) -> None:
+        max_prompt_index = -1
+        for key, value in state.items():
+            if key.startswith("network.prompt_learner."):
+                parts = key.split(".")
+                if len(parts) > 2:
+                    max_prompt_index = max(max_prompt_index, int(parts[2]))
+            elif key.startswith("prompt2guard_") and key not in self._buffers:
+                self.register_buffer(key, torch.empty_like(value))
+        while len(self.network.prompt_learner) <= max_prompt_index:
+            self.network.add_task()
+
+    def load_checkpoint_state_dict(self, state: dict[str, torch.Tensor]):
+        self._prepare_checkpoint_state_modules(state)
+        result = super().load_state_dict(state, strict=False)
+        return self._filter_load_result(result, missing_prefixes=self._checkpoint_excluded_prefixes())
+
+    def auxiliary_state_dict(self) -> dict[str, Any]:
+        state = super().auxiliary_state_dict()
+        state["task_ids"] = list(self.task_ids)
+        return state
+
+    def load_auxiliary_state_dict(self, state: dict[str, Any] | None) -> None:
+        super().load_auxiliary_state_dict(state)
+        if state and isinstance(state.get("task_ids"), list):
+            self.task_ids = [int(task_id) for task_id in state["task_ids"]]
+            self.current_task_index = len(self.task_ids) - 1
+
     def _load_object_label_sidecar(self, path: str | None) -> dict[str, Any]:
         if not path:
             return {}

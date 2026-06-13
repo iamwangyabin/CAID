@@ -891,6 +891,35 @@ class CPPromptMethod(DomainRoutedFeatureMethod):
     def _official_available_center_ids(self) -> list[int]:
         return [task_id for task_id in range(int(self.total_sessions)) if self._official_center_name(task_id) in self._buffers]
 
+    def _checkpoint_excluded_prefixes(self) -> tuple[str, ...]:
+        if getattr(self, "implementation", "") != "official":
+            return ()
+        return (
+            "official_network.clip_model.",
+            "official_network.image_encoder.",
+            "official_network.text_encoder.",
+            "official_network.logit_scale",
+        )
+
+    def checkpoint_state_dict(self) -> dict[str, torch.Tensor]:
+        state = super().state_dict()
+        prefixes = self._checkpoint_excluded_prefixes()
+        if not prefixes:
+            return state
+        return {key: value for key, value in state.items() if not key.startswith(prefixes)}
+
+    def _prepare_checkpoint_state_modules(self, state: dict[str, torch.Tensor]) -> None:
+        if getattr(self, "implementation", "") != "official":
+            return
+        for key, value in state.items():
+            if key.startswith("cp_prompt_official_centers_task") and key not in self._buffers:
+                self.register_buffer(key, torch.empty_like(value))
+
+    def load_checkpoint_state_dict(self, state: dict[str, torch.Tensor]):
+        self._prepare_checkpoint_state_modules(state)
+        result = super().load_state_dict(state, strict=False)
+        return self._filter_load_result(result, missing_prefixes=self._checkpoint_excluded_prefixes())
+
     def before_task(self, task: Any, train_loader: Any | None = None) -> None:
         if getattr(self, "implementation", "") != "official":
             return super().before_task(task, train_loader)

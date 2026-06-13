@@ -643,6 +643,36 @@ def test_sprompts_prompt_token_sip_smoke(tmp_path):
     assert "average_accuracy" in summary
 
 
+def test_sprompts_timm_encoder_allows_missing_patch_drop():
+    from caidbench.methods.sprompts import PromptedTimmViTEncoder
+
+    class FakeVisionTransformer(torch.nn.Module):
+        num_prefix_tokens = 1
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.norm_pre = torch.nn.Identity()
+            self.blocks = torch.nn.Identity()
+            self.norm = torch.nn.Identity()
+
+        def patch_embed(self, x: torch.Tensor) -> torch.Tensor:
+            return x.new_zeros((x.shape[0], 4, 3))
+
+        def _pos_embed(self, x: torch.Tensor) -> torch.Tensor:
+            cls = x.new_zeros((x.shape[0], 1, x.shape[-1]))
+            return torch.cat([cls, x], dim=1)
+
+        def forward_head(self, x: torch.Tensor, pre_logits: bool = False) -> torch.Tensor:
+            return x.mean(dim=1)
+
+    encoder = PromptedTimmViTEncoder.__new__(PromptedTimmViTEncoder)
+    torch.nn.Module.__init__(encoder)
+    encoder.model = FakeVisionTransformer()
+
+    out = encoder(torch.randn(2, 3, 16, 16), torch.randn(2, 3))
+    assert out.shape == (2, 3)
+
+
 def test_soyo_official_vit_smoke(tmp_path):
     if importlib.util.find_spec("timm") is None:
         return

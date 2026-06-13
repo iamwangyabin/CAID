@@ -51,7 +51,9 @@ class PromptedTimmViTEncoder(nn.Module):
         vit = self.model
         z = vit.patch_embed(x.float())
         z = vit._pos_embed(z)
-        z = vit.patch_drop(z)
+        patch_drop = getattr(vit, "patch_drop", None)
+        if patch_drop is not None:
+            z = patch_drop(z)
         z = _insert_prompt_tokens(z, prompt_tokens, int(getattr(vit, "num_prefix_tokens", 1)))
         z = vit.norm_pre(z)
         z = vit.blocks(z)

@@ -32,6 +32,30 @@ class TaskSpec:
     num_test: int = 0
 
 
+def _transform_steps(cfg: Any) -> list[Any] | None:
+    if cfg is None or cfg == {}:
+        return [{"_target_": "caidbench.data.transforms.ToTensor"}]
+    if isinstance(cfg, list):
+        return list(cfg)
+    if isinstance(cfg, Mapping):
+        for key in ("trsf", "transforms", "steps", "pipeline"):
+            if key in cfg:
+                return list(cfg[key])
+        if any(k in cfg for k in ("_target_", "target", "type", "name")):
+            return [dict(cfg)]
+    return None
+
+
+def _prepend_transform(prefix_cfg: Any, cfg: Any) -> Any:
+    prefix_steps = _transform_steps(prefix_cfg)
+    if not prefix_steps:
+        return cfg
+    steps = _transform_steps(cfg)
+    if steps is None:
+        return cfg
+    return {"trsf": [*prefix_steps, *steps]}
+
+
 class ContinualScenario:
     """Ordered continual-learning scenario.
 
@@ -47,8 +71,10 @@ class ContinualScenario:
         source: DataSource,
         protocol: Mapping[str, Any] | str | Path | None = None,
         transform_cfg: dict[str, Any] | None = None,
+        test_pre_transform_cfg: dict[str, Any] | list[Any] | None = None,
     ) -> None:
         self.transform_cfg = transform_cfg or {}
+        self.test_pre_transform_cfg = test_pre_transform_cfg or {}
         self.source = source
         self.protocol = load_protocol(protocol)
         self._split_indices: dict[tuple[int, str], list[int]] = {}
@@ -63,9 +89,14 @@ class ContinualScenario:
         transform_cfg = scfg.get("transform")
         data_cfg = dict(scfg.get("data", {}))
         if not data_cfg and "backend" in scfg:
-            data_cfg = {k: v for k, v in scfg.items() if k not in {"protocol", "transform"}}
+            data_cfg = {
+                k: v
+                for k, v in scfg.items()
+                if k not in {"protocol", "transform", "test_pre_transform", "eval_pre_transform"}
+            }
         if not data_cfg:
             raise ValueError("Config must define scenario.data with an AID Arrow dataset directory")
+        test_pre_transform_cfg = scfg.get("test_pre_transform", scfg.get("eval_pre_transform"))
         protocol_ref = scfg.get("protocol", {})
         protocol = load_protocol(protocol_ref)
         if "index_path" not in data_cfg and "index" not in data_cfg:
@@ -73,7 +104,12 @@ class ContinualScenario:
             if protocol_index is not None:
                 data_cfg["index_path"] = _resolve_protocol_index_path(protocol_ref, protocol_index)
         source = build_data_source(data_cfg)
-        return cls(source=source, protocol=protocol, transform_cfg=transform_cfg)
+        return cls(
+            source=source,
+            protocol=protocol,
+            transform_cfg=transform_cfg,
+            test_pre_transform_cfg=test_pre_transform_cfg,
+        )
 
     def _uniq(self, df: pd.DataFrame, col: str) -> tuple[str, ...]:
         if col not in df.columns or len(df) == 0:
@@ -132,7 +168,7 @@ class ContinualScenario:
             idx.extend(self._split_indices.get((task_index, split), []))
         return self.source.make_dataset(
             idx,
-            transform_cfg=self._transform_for_split(transform_split or split),
+            transform_cfg=self._transform_for_split(transform_split or split, data_split=split),
             task_id=-1,
             task_name=f"seen_until_{upto_index}",
         )
@@ -142,21 +178,27 @@ class ContinualScenario:
         idx = self._split_indices.get((task_index, split), [])
         return self.source.make_dataset(
             idx,
-            transform_cfg=self._transform_for_split(transform_split or split),
+            transform_cfg=self._transform_for_split(transform_split or split, data_split=split),
             task_id=task.task_id,
             task_name=task.name,
         )
 
-    def _transform_for_split(self, split: str) -> Any:
+    def _transform_for_split(self, split: str, *, data_split: str | None = None) -> Any:
         cfg = self.transform_cfg
+        selected: Any
         if not isinstance(cfg, Mapping):
-            return cfg
-        if split in cfg:
-            return cfg[split]
-        if split == "val" and "test" in cfg:
-            return cfg["test"]
-        if split in {"val", "test"} and "eval" in cfg:
-            return cfg["eval"]
-        if "default" in cfg:
-            return cfg["default"]
-        return cfg
+            selected = cfg
+        elif split in cfg:
+            selected = cfg[split]
+        elif split == "val" and "test" in cfg:
+            selected = cfg["test"]
+        elif split in {"val", "test"} and "eval" in cfg:
+            selected = cfg["eval"]
+        elif "default" in cfg:
+            selected = cfg["default"]
+        else:
+            selected = cfg
+        actual_split = split if data_split is None else data_split
+        if actual_split == "test" and self.test_pre_transform_cfg:
+            return _prepend_transform(self.test_pre_transform_cfg, selected)
+        return selected

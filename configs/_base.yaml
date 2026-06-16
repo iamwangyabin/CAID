@@ -21,6 +21,11 @@ scenario:
       path_in_repo: .
       max_workers: 16
   protocol: protocols/examples/cddb_hard_arrow.yaml
+  test_pre_transform:
+    trsf:
+      - _target_: caidbench.data.transforms.ConditionalJPEGCompress
+        quality: 80
+        recompress_if_jpeg_quality_above: 80
   transform:
     train:
       trsf:

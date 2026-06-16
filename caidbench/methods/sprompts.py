@@ -11,6 +11,7 @@ from sklearn.cluster import KMeans
 
 from ..registry import register_method
 from .base import ContinualMethod, batch_to_device, build_optimizer, effective_train_batches, iter_limited_train_batches
+from ..utils.distributed import all_gather_object, broadcast_tensor, is_main_process
 from ..utils.logging import format_log_value, get_logger
 
 
@@ -469,6 +470,9 @@ class SPromptsMethod(ContinualMethod):
             getattr(trainer, "logger", None),
         )
         for epoch in range(epochs):
+            set_epoch = getattr(trainer, "set_loader_epoch", None)
+            if callable(set_epoch):
+                set_epoch(train_loader, epoch)
             self._log_stage(
                 f"fit_task epoch_begin epoch={epoch + 1}/{epochs} task={formatted_task_label}",
                 getattr(trainer, "logger", None),
@@ -477,7 +481,8 @@ class SPromptsMethod(ContinualMethod):
             totals: dict[str, float] = {}
             n = 0
             for batch_idx, batch in iter_limited_train_batches(trainer, train_loader):
-                out = self.observe(batch, task)
+                observe_batch = getattr(trainer, "observe_batch", None)
+                out = observe_batch(batch, task) if callable(observe_batch) else self.observe(batch, task)
                 optimizer.zero_grad(set_to_none=True)
                 out["loss"].backward()
                 if trainer.grad_clip:
@@ -564,15 +569,20 @@ class SPromptsMethod(ContinualMethod):
             if batch_idx == 1 or batch_idx == total_batches or batch_idx % 50 == 0:
                 self._log_stage(f"after_task extracting_features progress={batch_idx}/{total_batches} task_index={self.current_task_id}")
         self._log_stage(f"after_task feature_collection_done task_index={self.current_task_id} stage=cluster")
-        if features:
-            all_features = torch.cat(features, dim=0)
+        local_features = torch.cat(features, dim=0) if features else torch.empty(0, self.feature_dim)
+        gathered_features = all_gather_object(local_features)
+        if is_main_process():
+            feature_parts = [feat for feat in gathered_features if torch.is_tensor(feat) and feat.numel() > 0]
+            all_features = torch.cat(feature_parts, dim=0) if feature_parts else torch.empty(0, self.feature_dim)
             self._log_stage(
                 f"after_task cluster_start task_index={self.current_task_id} n_clusters={self.num_centers} "
                 f"all_samples={all_features.shape[0]}",
             )
-            self._store_centers(self.current_prompt_key, self._cluster_features(all_features))
+            centers = self._cluster_features(all_features)
         else:
-            self._log_stage(f"after_task cluster_start task_index={self.current_task_id} n_clusters={self.num_centers} all_samples=0")
+            centers = torch.empty(0, self.feature_dim)
+        centers = broadcast_tensor(centers, device=self.device)
+        self._store_centers(self.current_prompt_key, centers)
         if was_training:
             self.train()
         self._freeze_except_current()

@@ -16,7 +16,7 @@ For generated CAIDBench protocols, prefer the ready-to-run configs under
 Example:
 
 ```bash
-caid-train --config configs/caidbench/finetune_default.yaml
+caid-train --config configs/caidbench/finetune.yaml
 ```
 
 The protocol file used by that config is:

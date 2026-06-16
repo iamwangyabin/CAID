@@ -5,7 +5,7 @@ This directory contains generated CAIDBench continual task protocols.
 Use the matching runnable config instead of passing this protocol alone:
 
 ```bash
-caid-train --config configs/caidbench/finetune_default.yaml
+caid-train --config configs/caidbench/finetune.yaml
 ```
 
 `default_protocol.yaml` defines the default task order and filters. It also

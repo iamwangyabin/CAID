@@ -1,0 +1,56 @@
+_base_: ../_base.yaml
+seed: 1993
+output_dir: outputs/mlsb_cddb_hard
+
+scenario:
+  transform:
+    train:
+      trsf:
+        - _target_: caidbench.data.transforms.RandomResizedCrop
+          size: 224
+          scale: [0.05, 1.0]
+          ratio: [0.75, 1.3333333333333333]
+        - _target_: caidbench.data.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: caidbench.data.transforms.ToTensor
+        - _target_: caidbench.data.transforms.Normalize
+          mean: [0.48145466, 0.4578275, 0.40821073]
+          std: [0.26862954, 0.26130258, 0.27577711]
+    test:
+      trsf:
+        - _target_: caidbench.data.transforms.Resize
+          size: 256
+          interpolation: bicubic
+        - _target_: caidbench.data.transforms.CenterCrop
+          size: 224
+        - _target_: caidbench.data.transforms.ToTensor
+        - _target_: caidbench.data.transforms.Normalize
+          mean: [0.48145466, 0.4578275, 0.40821073]
+          std: [0.26862954, 0.26130258, 0.27577711]
+
+train:
+  epochs: 1
+  batch_size: 64
+  num_workers: 16
+
+method:
+  name: mlsb
+  num_classes: 2
+  detector_cfg:
+    num_classes: 2
+    backbone:
+      type: clip_vision
+      backend: open_clip
+      model_name: ViT-L-14
+      pretrained: openai
+      freeze: true
+      normalize: false
+  feature_mode: auto_hooks
+  hook_pattern: auto
+  token_pool: cls
+  include_final_feature: false
+  normalize_layer_features: true
+  normalize_concat: false
+  top_k: 128
+  storage_dtype: float16
+  use_test_transform_for_stats: true

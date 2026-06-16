@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 
 def _collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
@@ -28,6 +28,7 @@ def build_dataloader(
     dataset: Dataset,
     batch_size: int = 32,
     shuffle: bool = False,
+    sampler: Sampler[int] | None = None,
     num_workers: int = 0,
     drop_last: bool = False,
     pin_memory: bool = False,
@@ -36,12 +37,14 @@ def build_dataloader(
 ) -> DataLoader:
     kwargs: dict[str, Any] = {
         "batch_size": batch_size,
-        "shuffle": shuffle,
+        "shuffle": shuffle if sampler is None else False,
         "num_workers": num_workers,
         "drop_last": drop_last,
         "collate_fn": _collate,
         "pin_memory": pin_memory,
     }
+    if sampler is not None:
+        kwargs["sampler"] = sampler
     if num_workers > 0:
         kwargs["persistent_workers"] = persistent_workers
         if prefetch_factor is not None:

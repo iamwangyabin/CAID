@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data.distributed import DistributedSampler
 
 from ..config import load_config
 from ..data.loader import build_dataloader
@@ -17,7 +19,20 @@ from ..evaluation import ContinualMetricMatrix, summarize_logits
 from ..methods.base import build_optimizer
 from ..registry import build_method
 from ..utils.checkpoint import load_checkpoint, save_checkpoint
-from ..utils.experiment import build_experiment_logger, compute_experiment_name
+from ..utils.distributed import (
+    DistributedState,
+    EvalShardSampler,
+    all_gather_object,
+    barrier,
+    broadcast_module_state,
+    broadcast_object,
+    broadcast_tensor,
+    choose_device,
+    destroy_distributed,
+    init_distributed,
+    mean_scalars,
+)
+from ..utils.experiment import NullExperimentLogger, build_experiment_logger, compute_experiment_name
 from ..utils.logging import attach_file_handler, format_log_value, get_logger
 from ..utils.seed import seed_everything
 from ..utils.tensor import move_to_device
@@ -44,6 +59,31 @@ def _optional_positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
+SUPPORTED_DISTRIBUTED_METHODS = {"finetune", "sprompts", "s_prompts", "s-prompts"}
+
+
+class _ObserveDDPWrapper(torch.nn.Module):
+    def __init__(self, method: torch.nn.Module) -> None:
+        super().__init__()
+        self.method = method
+
+    def forward(self, batch: dict[str, Any], task: Any | None = None) -> dict[str, Any]:
+        return self.method.observe(batch, task)
+
+
+def _validate_clean_training_config(cfg: Mapping[str, Any], train_cfg: Mapping[str, Any], method_cfg: Mapping[str, Any], checkpoint_cfg: Mapping[str, Any]) -> None:
+    if "debug_max_steps_per_epoch" in cfg:
+        raise ValueError("debug_max_steps_per_epoch must be set as train.debug_max_steps_per_epoch.")
+    if "debug_max_steps_per_epoch" in method_cfg:
+        raise ValueError("method.debug_max_steps_per_epoch is no longer supported; use train.debug_max_steps_per_epoch.")
+    for key in ("distributed", "distributed_backend", "ddp_find_unused_parameters"):
+        if key in train_cfg:
+            raise ValueError(f"train.{key} is no longer supported; use distributed.* at the config top level.")
+    for key in ("save_task_checkpoints", "save_intermediate"):
+        if key in checkpoint_cfg:
+            raise ValueError(f"checkpoint.{key} is no longer supported; use checkpoint.save_each_task.")
+
+
 class Trainer:
     """Unified continual-detection trainer.
 
@@ -56,23 +96,37 @@ class Trainer:
         if isinstance(cfg, (str, Path)):
             cfg = load_config(cfg)
         self.cfg = cfg
-        seed_everything(int(cfg.get("seed", 0)))
+        train_cfg = cfg.get("train", {})
+        if not isinstance(train_cfg, Mapping):
+            raise TypeError("train config must be a mapping")
+        method_cfg = dict(cfg.get("method", {}))
+        checkpoint_cfg = cfg.get("checkpoint", {}) or {}
+        if not isinstance(checkpoint_cfg, Mapping):
+            raise TypeError("checkpoint config must be a mapping")
+        _validate_clean_training_config(cfg, train_cfg, method_cfg, checkpoint_cfg)
+        distributed_cfg = cfg.get("distributed", {}) or {}
+        if not isinstance(distributed_cfg, Mapping):
+            raise TypeError("distributed config must be a mapping")
+        self.distributed: DistributedState = init_distributed(distributed_cfg.get("backend"))
+        self.is_main_process = self.distributed.is_main_process
+        seed_everything(int(cfg.get("seed", 0)) + (self.distributed.rank if self.distributed.enabled else 0))
         base_output_dir = Path(cfg.get("output_dir", "outputs/caidbench_run"))
         self.logger = get_logger("caidbench")
+        self.logger.disabled = not self.is_main_process
         device_cfg = str(cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
-        self.device = torch.device(device_cfg if device_cfg != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.device = choose_device(device_cfg if device_cfg != "auto" else "auto", self.distributed)
         scfg = cfg.get("scenario", {})
         self.scenario = ContinualScenario.from_config(scfg)
-        method_cfg = dict(cfg.get("method", {}))
         method_name = method_cfg.pop("name", cfg.get("method_name", "finetune"))
-        train_cfg = cfg.get("train", {})
+        self.method_name = str(method_name).lower().strip()
+        if self.distributed.enabled and self.method_name not in SUPPORTED_DISTRIBUTED_METHODS:
+            supported = ", ".join(sorted(SUPPORTED_DISTRIBUTED_METHODS))
+            destroy_distributed()
+            raise RuntimeError(f"Distributed training currently supports only: {supported}. Got method.name={method_name!r}.")
         eval_cfg = cfg.get("eval", {}) or {}
         if not isinstance(eval_cfg, Mapping):
             raise TypeError("eval config must be a mapping")
-        debug_step_limit = train_cfg.get(
-            "debug_max_steps_per_epoch",
-            cfg.get("debug_max_steps_per_epoch", method_cfg.get("debug_max_steps_per_epoch")),
-        )
+        debug_step_limit = train_cfg.get("debug_max_steps_per_epoch")
         self.debug_max_steps_per_epoch = _optional_positive_int(debug_step_limit)
         self.eval_scope = str(eval_cfg.get("scope", "seen")).lower()
         if self.eval_scope not in {"seen", "all", "current"}:
@@ -89,33 +143,31 @@ class Trainer:
         self.prefetch_factor = train_cfg.get("prefetch_factor", 2 if self.num_workers > 0 else None)
         self.non_blocking = bool(train_cfg.get("non_blocking", self.pin_memory and self.device.type == "cuda"))
         self.drop_last = bool(train_cfg.get("drop_last", False))
-        checkpoint_cfg = cfg.get("checkpoint", {}) or {}
-        if not isinstance(checkpoint_cfg, Mapping):
-            raise TypeError("checkpoint config must be a mapping")
         self.save_last_checkpoint = bool(checkpoint_cfg.get("save_last", True))
         self.save_base_checkpoint = bool(checkpoint_cfg.get("save_base", True))
-        self.save_task_checkpoints = bool(
-            checkpoint_cfg.get(
-                "save_each_task",
-                checkpoint_cfg.get("save_task_checkpoints", checkpoint_cfg.get("save_intermediate", True)),
-            )
-        )
+        self.save_task_checkpoints = bool(checkpoint_cfg.get("save_each_task", True))
         self.train_log_interval = int(train_cfg.get("log_interval", 50))
         if self.train_log_interval <= 0:
             self.train_log_interval = 0
         self.grad_clip = train_cfg.get("grad_clip")
         self.grad_clip = None if self.grad_clip is None else float(self.grad_clip)
         self.optimizer_cfg = dict(train_cfg.get("optimizer", {"type": "adamw", "lr": 1e-4}))
+        self.ddp_find_unused_parameters = bool(distributed_cfg.get("find_unused_parameters", True))
+        self._ddp_observer: DistributedDataParallel | None = None
         self.metric_matrix = ContinualMetricMatrix([t.name for t in self.scenario.tasks])
         self.eval_records: list[dict[str, Any]] = []
         self.global_step = 0
         self.resume_task_index = -1
         self._active_train_task_index: float | None = None
-        experiment_name = compute_experiment_name(self.cfg, base_output_dir, str(method_name))
+        experiment_name = compute_experiment_name(self.cfg, base_output_dir, str(method_name)) if self.is_main_process else None
+        experiment_name = broadcast_object(experiment_name, src=0)
         self.output_dir = base_output_dir / experiment_name
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        attach_file_handler(self.logger, self.output_dir / "train.log")
-        self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name), experiment_name=experiment_name)
+        if self.is_main_process:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            attach_file_handler(self.logger, self.output_dir / "train.log")
+            self.experiment = build_experiment_logger(self.cfg, self.output_dir, str(method_name), experiment_name=experiment_name)
+        else:
+            self.experiment = NullExperimentLogger()
         resume_from = cfg.get("resume_from")
         if resume_from:
             self._resume_from_checkpoint(resume_from)
@@ -148,10 +200,23 @@ class Trainer:
         effective_num_workers = self.num_workers if split == "train" else self.eval_num_workers
         effective_persistent_workers = self.persistent_workers and split == "train" and effective_num_workers > 0
         effective_prefetch_factor = self.prefetch_factor if effective_num_workers > 0 else None
+        sampler = None
+        if self.distributed.enabled:
+            if split == "train":
+                sampler = DistributedSampler(
+                    ds,
+                    num_replicas=self.distributed.world_size,
+                    rank=self.distributed.rank,
+                    shuffle=shuffle,
+                    drop_last=effective_drop_last,
+                )
+            else:
+                sampler = EvalShardSampler(ds, rank=self.distributed.rank, world_size=self.distributed.world_size)
         loader = build_dataloader(
             ds,
             batch_size=self.batch_size,
             shuffle=shuffle,
+            sampler=sampler,
             num_workers=effective_num_workers,
             drop_last=effective_drop_last,
             pin_memory=self.pin_memory,
@@ -209,6 +274,14 @@ class Trainer:
             payload["train/lr"] = float(lr)
         if not payload:
             return
+        metric_values = {
+            key: float(value)
+            for key, value in payload.items()
+            if str(key).startswith("train/")
+            and key not in {"train/task_index", "train/epoch", "train/global_step", "train/lr"}
+            and isinstance(value, (int, float))
+        }
+        payload.update(mean_scalars(metric_values, self.device))
         self._print_train_metrics(
             payload,
             task=task,
@@ -281,17 +354,39 @@ class Trainer:
         payload.setdefault("train/global_step", float(self.global_step))
         return payload
 
+    def set_loader_epoch(self, loader: Any, epoch: int) -> None:
+        sampler = getattr(loader, "sampler", None)
+        set_epoch = getattr(sampler, "set_epoch", None)
+        if callable(set_epoch):
+            set_epoch(int(epoch))
+
+    def rebuild_ddp_observer(self) -> None:
+        self._ddp_observer = None
+        if not self.distributed.enabled:
+            return
+        wrapper = _ObserveDDPWrapper(self.method)
+        ddp_kwargs: dict[str, Any] = {"find_unused_parameters": self.ddp_find_unused_parameters}
+        if self.device.type == "cuda":
+            ddp_kwargs.update({"device_ids": [self.distributed.local_rank], "output_device": self.distributed.local_rank})
+        self._ddp_observer = DistributedDataParallel(wrapper, **ddp_kwargs)
+
+    def observe_batch(self, batch: dict[str, Any], task: TaskSpec | Any | None = None) -> dict[str, Any]:
+        batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
+        if self._ddp_observer is not None:
+            return self._ddp_observer(batch, task)
+        return self.method.observe(batch, task)
+
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
         optimizer = optimizer or method.configure_optimizer(self.optimizer_cfg)
         num_batches = self.effective_train_batches(train_loader)
         for epoch in range(self.max_epochs):
+            self.set_loader_epoch(train_loader, epoch)
             totals: dict[str, float] = {}
             n = 0
             epoch_started_at = time.monotonic()
             for batch_idx, batch in self.iter_train_batches(train_loader):
-                batch = move_to_device(batch, self.device, non_blocking=self.non_blocking)
-                out = method.observe(batch, task)
+                out = self.observe_batch(batch, task)
                 loss = out["loss"]
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
@@ -358,11 +453,25 @@ class Trainer:
             dataset_close = getattr(getattr(loader, "dataset", None), "close", None)
             if callable(dataset_close):
                 dataset_close()
-        if not logits_list:
+        local_logits = torch.cat(logits_list, dim=0) if logits_list else None
+        local_y = torch.cat(y_list, dim=0) if y_list else torch.empty(0, dtype=torch.long)
+        distributed = getattr(self, "distributed", DistributedState(enabled=False))
+        if distributed.enabled:
+            gathered = all_gather_object({"logits": local_logits, "y": local_y})
+            metrics: dict[str, float | int] | None = None
+            if self.is_main_process:
+                logits_parts = [item["logits"] for item in gathered if torch.is_tensor(item.get("logits")) and item["logits"].numel() > 0]
+                y_parts = [item["y"] for item in gathered if torch.is_tensor(item.get("y")) and item["y"].numel() > 0]
+                if logits_parts and y_parts:
+                    logits = torch.cat(logits_parts, dim=0)
+                    y = torch.cat(y_parts, dim=0)
+                    metrics = {**summarize_logits(logits, y), "num_samples": int(y.numel())}
+                else:
+                    metrics = {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan"), "num_samples": 0}
+            return broadcast_object(metrics, src=0)
+        if local_logits is None:
             return {"acc": float("nan"), "auc": float("nan"), "ap": float("nan"), "f1": float("nan"), "ece": float("nan"), "num_samples": 0}
-        logits = torch.cat(logits_list, dim=0)
-        y = torch.cat(y_list, dim=0)
-        return {**summarize_logits(logits, y), "num_samples": int(y.numel())}
+        return {**summarize_logits(local_logits, local_y), "num_samples": int(local_y.numel())}
 
     def _eval_task_indices(self, train_index: int) -> range:
         if self.eval_scope == "all":
@@ -401,6 +510,12 @@ class Trainer:
     def run(self) -> dict[str, Any]:
         try:
             self.logger.info("Starting CAIDBench run on %s with method=%s", self.device, self.method.__class__.__name__)
+            if self.distributed.enabled:
+                self.logger.info(
+                    "Distributed training enabled: backend=%s world_size=%d",
+                    self.distributed.backend,
+                    self.distributed.world_size,
+                )
             if self.debug_max_steps_per_epoch is not None:
                 self.logger.info("Debug train step limit enabled: max_steps_per_epoch=%d", self.debug_max_steps_per_epoch)
             if self.eval_max_batches_per_task is not None:
@@ -415,10 +530,12 @@ class Trainer:
                 val_loader = self.dataloader(i, "val", shuffle=False) if task.num_val > 0 else None
                 self.method.before_task(task, train_loader)
                 self.method.to(self.device)
+                self.rebuild_ddp_observer()
                 handled = self.method.fit_task(self, task, train_loader, val_loader)
                 if not handled:
                     self.default_train_loop(self.method, task, train_loader)
                 self.method.after_task(task, train_loader)
+                broadcast_module_state(self.method, src=0)
                 eval_payload: dict[str, float | int] = {}
                 eval_rows: list[dict[str, Any]] = []
                 for j in self._eval_task_indices(i):
@@ -470,53 +587,61 @@ class Trainer:
                             "eval/future_weighted_f1": self._weighted_records(future_eval_rows, "f1"),
                         }
                     )
-                self._log_eval_console_table(eval_rows, eval_payload)
-                self._log_eval_table(eval_rows, step=i)
-                self.log_metrics(eval_payload, step=i)
-                self._save_intermediate(i)
-                self._write_outputs(log_tables=False)
+                if self.is_main_process:
+                    self._log_eval_console_table(eval_rows, eval_payload)
+                    self._log_eval_table(eval_rows, step=i)
+                    self.log_metrics(eval_payload, step=i)
+                    self._save_intermediate(i)
+                    self._write_outputs(log_tables=False)
+                barrier()
                 self._active_train_task_index = None
-            summary = self._write_outputs(log_tables=True)
-            summary_payload = {
-                "summary/average_accuracy": summary["average_accuracy"],
-                "summary/average_forgetting": summary["average_forgetting"],
-                "summary/average_auc": summary["average_auc"],
-                "summary/auc_forgetting": summary["auc_forgetting"],
-                "summary/average_ap": summary["average_ap"],
-                "summary/ap_forgetting": summary["ap_forgetting"],
-                "summary/average_f1": summary["average_f1"],
-                "summary/f1_forgetting": summary["f1_forgetting"],
-                "summary/official_average_accuracy": summary["official_average_accuracy"],
-                "summary/official_last_accuracy": summary["official_last_accuracy"],
-            }
-            if self.eval_scope == "all":
-                summary_payload.update(
-                    {
-                        "summary/future_average_accuracy": summary["future_average_accuracy"],
-                        "summary/future_average_auc": summary["future_average_auc"],
-                        "summary/future_average_ap": summary["future_average_ap"],
-                        "summary/future_average_f1": summary["future_average_f1"],
-                    }
+            summary = self._write_outputs(log_tables=True) if self.is_main_process else None
+            summary = broadcast_object(summary, src=0)
+            if self.is_main_process:
+                summary_payload = {
+                    "summary/average_accuracy": summary["average_accuracy"],
+                    "summary/average_forgetting": summary["average_forgetting"],
+                    "summary/average_auc": summary["average_auc"],
+                    "summary/auc_forgetting": summary["auc_forgetting"],
+                    "summary/average_ap": summary["average_ap"],
+                    "summary/ap_forgetting": summary["ap_forgetting"],
+                    "summary/average_f1": summary["average_f1"],
+                    "summary/f1_forgetting": summary["f1_forgetting"],
+                    "summary/official_average_accuracy": summary["official_average_accuracy"],
+                    "summary/official_last_accuracy": summary["official_last_accuracy"],
+                }
+                if self.eval_scope == "all":
+                    summary_payload.update(
+                        {
+                            "summary/future_average_accuracy": summary["future_average_accuracy"],
+                            "summary/future_average_auc": summary["future_average_auc"],
+                            "summary/future_average_ap": summary["future_average_ap"],
+                            "summary/future_average_f1": summary["future_average_f1"],
+                        }
+                    )
+                self.log_metrics(summary_payload)
+                self.logger.info(
+                    "Finished: AA=%.4f AF=%.4f AUC_AA=%.4f AP_AA=%.4f F1_AA=%.4f OfficialAbar=%.4f OfficialAB=%.4f",
+                    summary["average_accuracy"],
+                    summary["average_forgetting"],
+                    summary["average_auc"],
+                    summary["average_ap"],
+                    summary["average_f1"],
+                    summary["official_average_accuracy"],
+                    summary["official_last_accuracy"],
                 )
-            self.log_metrics(summary_payload)
-            self.logger.info(
-                "Finished: AA=%.4f AF=%.4f AUC_AA=%.4f AP_AA=%.4f F1_AA=%.4f OfficialAbar=%.4f OfficialAB=%.4f",
-                summary["average_accuracy"],
-                summary["average_forgetting"],
-                summary["average_auc"],
-                summary["average_ap"],
-                summary["average_f1"],
-                summary["official_average_accuracy"],
-                summary["official_last_accuracy"],
-            )
             return summary
         except BaseException:
             self._write_partial_outputs_after_error()
             raise
         finally:
             self.experiment.finish()
+            if self.distributed.enabled:
+                destroy_distributed()
 
     def _save_intermediate(self, task_index: int) -> None:
+        if not self.is_main_process:
+            return
         payload = {
             "checkpoint_version": 1,
             "model": self.method.checkpoint_state_dict(),
@@ -587,7 +712,7 @@ class Trainer:
         return float(np.mean(vals)) if vals else float("nan")
 
     def _write_partial_outputs_after_error(self) -> None:
-        if not self.eval_records:
+        if not self.is_main_process or not self.eval_records:
             return
         try:
             summary = self._write_outputs(log_tables=False)
@@ -601,6 +726,8 @@ class Trainer:
         )
 
     def _write_outputs(self, *, log_tables: bool = True) -> dict[str, Any]:
+        if not self.is_main_process:
+            return {}
         completed_task_count = self._completed_task_count()
         tables = self.metric_matrix.to_tables()
         output_task_count = len(self.scenario.tasks) if self.eval_scope == "all" else completed_task_count

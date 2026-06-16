@@ -72,3 +72,10 @@ This document maps each CAIDBench method to the paper-level mechanics implemente
 - Distribution re-filling performs latent mixup around replay centroids.
 - Isolation loss separates real/fake and task/domain distributions.
 - Incremental decision alignment keeps task-specific binary heads aligned.
+
+## MLSB
+
+- Frozen pre-trained detector/backbone with RINE-style intermediate-layer hooks.
+- Each task stores only real-vs-fake hyperplanes from current-task feature means.
+- Default sparse mode keeps the top-k dimensions per hooked layer plus one bias per layer.
+- Inference averages multi-layer boundary scores per historical task and uses the strongest fake score.

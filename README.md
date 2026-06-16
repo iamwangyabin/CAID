@@ -42,7 +42,7 @@ caid-train --config configs/reproduce/dfil.yaml
 Run the generated CAIDBench continual protocol:
 
 ```bash
-caid-train --config configs/caidbench/finetune_default.yaml
+caid-train --config configs/caidbench/finetune.yaml
 ```
 
 Protocol files only define task order and filters. Dataset paths live in

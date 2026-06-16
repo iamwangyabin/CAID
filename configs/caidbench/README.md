@@ -5,7 +5,7 @@ continual protocols. Use them with `caid-train --config ...`.
 
 ## CAIDBench Default Protocol
 
-`configs/caidbench/finetune_default.yaml` wires together the pieces required for a
+`configs/caidbench/finetune.yaml` wires together the pieces required for a
 run:
 
 - dataset root: `scenario.data.path`
@@ -15,14 +15,14 @@ run:
 Example:
 
 ```bash
-caid-train --config configs/caidbench/finetune_default.yaml
+caid-train --config configs/caidbench/finetune.yaml
 ```
 
 For local smoke runs without SwanLab:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override logging.backend=none
 ```
 
@@ -37,7 +37,7 @@ Resume from the last completed task with:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override resume_from=/path/to/run/last.pt logging.backend=none
 ```
 
@@ -45,7 +45,7 @@ For a quick debug pass where each epoch only consumes a few train batches:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override logging.backend=none train.epochs=1 train.debug_max_steps_per_epoch=2 eval.max_batches_per_task=2
 ```
 
@@ -54,7 +54,7 @@ The CAIDBench configs default to the lab-server Arrow package at
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override \
     logging.backend=none \
     train.epochs=1 \
@@ -110,7 +110,7 @@ For future-task generalization, run a full matrix:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override eval.scope=all
 ```
 
@@ -118,7 +118,7 @@ For a full matrix smoke run with bounded evaluation cost:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override \
     logging.backend=none \
     train.epochs=1 \
@@ -143,7 +143,7 @@ root:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override scenario.data.path=/path/to/caidbench_arrow_root
 ```
 
@@ -151,6 +151,6 @@ To run the model-appearance order instead of the default order:
 
 ```bash
 caid-train \
-  --config configs/caidbench/finetune_default.yaml \
+  --config configs/caidbench/finetune.yaml \
   --override scenario.protocol=protocols/caidbench/model_appearance_order_protocol.yaml
 ```

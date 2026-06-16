@@ -20,6 +20,7 @@ from .loranpac import LoRanPACMethod
 from .dce import DCEMethod
 from .hdp import HDPMethod
 from .sur_lid import SURLIDMethod
+from .mlsb import MLSBMethod
 
 __all__ = [
     "ContinualMethod",
@@ -44,4 +45,5 @@ __all__ = [
     "DCEMethod",
     "HDPMethod",
     "SURLIDMethod",
+    "MLSBMethod",
 ]

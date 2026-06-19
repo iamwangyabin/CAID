@@ -188,13 +188,18 @@ class Trainer:
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
         return build_optimizer(self.method.parameters() if params is None else params, self.optimizer_cfg)
 
-    def make_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler | None:
+    def make_scheduler(
+        self,
+        optimizer: torch.optim.Optimizer,
+        *,
+        total_steps: int | None = None,
+    ) -> torch.optim.lr_scheduler.LRScheduler | None:
         name = str(self.lr_scheduler_cfg).lower() if self.lr_scheduler_cfg is not None else "none"
         if name in {"none", "fixed", "constant"}:
             return None
         if name != "cosine":
             raise ValueError(f"Unsupported train.lr_scheduler={self.lr_scheduler_cfg!r}; use 'cosine' or 'none'.")
-        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(self.max_epochs, 1))
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(total_steps or self.max_epochs, 1))
 
     def dataloader(
         self,
@@ -264,6 +269,7 @@ class Trainer:
         batch_idx: int | None = None,
         num_batches: int | None = None,
         started_at: float | None = None,
+        print_metrics: bool = True,
     ) -> None:
         payload: dict[str, Any] = {}
         for key, value in self._scalar_train_metrics(metrics).items():
@@ -291,16 +297,17 @@ class Trainer:
             and isinstance(value, (int, float))
         }
         payload.update(mean_scalars(metric_values, self.device))
-        self._print_train_metrics(
-            payload,
-            task=task,
-            task_name=task_name,
-            phase=phase,
-            epochs=epochs,
-            batch_idx=batch_idx,
-            num_batches=num_batches,
-            started_at=started_at,
-        )
+        if print_metrics:
+            self._print_train_metrics(
+                payload,
+                task=task,
+                task_name=task_name,
+                phase=phase,
+                epochs=epochs,
+                batch_idx=batch_idx,
+                num_batches=num_batches,
+                started_at=started_at,
+            )
         self.log_metrics(payload, step=step)
 
     def _print_train_metrics(
@@ -388,11 +395,10 @@ class Trainer:
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
         optimizer = optimizer or method.configure_optimizer(self.optimizer_cfg)
-        scheduler = self.make_scheduler(optimizer)
         num_batches = self.effective_train_batches(train_loader)
+        scheduler = self.make_scheduler(optimizer, total_steps=self.max_epochs * num_batches)
         for epoch in range(self.max_epochs):
             self.set_loader_epoch(train_loader, epoch)
-            totals: dict[str, float] = {}
             n = 0
             epoch_started_at = time.monotonic()
             for batch_idx, batch in self.iter_train_batches(train_loader):
@@ -404,27 +410,16 @@ class Trainer:
                 if self.grad_clip:
                     torch.nn.utils.clip_grad_norm_(method.parameters(), self.grad_clip)
                 optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
                 self.advance_step()
                 method.after_optimizer_step(task)
-                for k, v in method.train_metrics(out).items():
-                    totals[k] = totals.get(k, 0.0) + float(v)
                 n += 1
-
-                if self.train_log_interval > 0 and n % self.train_log_interval == 0:
-                    metrics = {k: v / max(n, 1) for k, v in totals.items()}
-                    self.log_train_metrics(
-                        metrics,
-                        task=task,
-                        epoch=epoch + 1,
-                        epochs=self.max_epochs,
-                        optimizer=optimizer,
-                        batch_idx=batch_idx,
-                        num_batches=num_batches,
-                        started_at=epoch_started_at,
-                    )
-
-            if totals:
-                metrics = {k: v / max(n, 1) for k, v in totals.items()}
+                metrics = method.train_metrics(out)
+                should_print = (
+                    self.train_log_interval > 0
+                    and (n == 1 or n % self.train_log_interval == 0 or batch_idx == num_batches)
+                )
                 self.log_train_metrics(
                     metrics,
                     task=task,
@@ -434,9 +429,8 @@ class Trainer:
                     batch_idx=n,
                     num_batches=num_batches,
                     started_at=epoch_started_at,
+                    print_metrics=should_print,
                 )
-            if scheduler is not None:
-                scheduler.step()
 
     def advance_step(self, n: int = 1) -> None:
         self.global_step += int(n)

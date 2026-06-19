@@ -15,7 +15,7 @@ from torch.utils.data.distributed import DistributedSampler
 from ..config import load_config
 from ..data.loader import build_dataloader
 from ..data.scenario import ContinualScenario, TaskSpec
-from ..evaluation import ContinualMetricMatrix, summarize_logits
+from ..evaluation import ContinualMetricMatrix, binary_accuracy, summarize_logits
 from ..methods.base import build_optimizer
 from ..registry import build_method
 from ..utils.checkpoint import load_checkpoint, save_checkpoint
@@ -253,6 +253,14 @@ class Trainer:
                 out[str(key)] = float(value)
         return out
 
+    @staticmethod
+    def _batch_accuracy_metric(output: Mapping[str, Any], batch: Mapping[str, Any]) -> dict[str, float]:
+        logits = output.get("logits")
+        y = batch.get("y")
+        if logits is None or y is None:
+            return {}
+        return {"acc": binary_accuracy(logits, y)}
+
     def log_train_metrics(
         self,
         metrics: Mapping[str, Any],
@@ -416,6 +424,7 @@ class Trainer:
                 method.after_optimizer_step(task)
                 n += 1
                 metrics = method.train_metrics(out)
+                metrics.update(self._batch_accuracy_metric(out, batch))
                 should_print = (
                     self.train_log_interval > 0
                     and (n == 1 or n % self.train_log_interval == 0 or batch_idx == num_batches)

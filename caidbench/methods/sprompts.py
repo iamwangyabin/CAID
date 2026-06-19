@@ -80,11 +80,52 @@ class PromptedOpenCLIPVisionEncoder(nn.Module):
         self.model_name = model_name
         self.clip_model = open_clip.create_model(model_name, pretrained=pretrained_name, **cfg)
         self.visual = self.clip_model.visual
-        required = ["conv1", "class_embedding", "positional_embedding", "ln_pre", "transformer", "_pool"]
-        if not all(hasattr(self.visual, name) for name in required):
-            raise TypeError(f"{model_name} is not an OpenCLIP ViT visual encoder compatible with S-Prompts.")
+        required = ["conv1", "class_embedding", "positional_embedding", "ln_pre", "transformer", "ln_post"]
+        missing = [name for name in required if not hasattr(self.visual, name)]
+        if missing:
+            raise TypeError(
+                f"{model_name} is not an OpenCLIP ViT visual encoder compatible with S-Prompts; "
+                f"missing attributes: {', '.join(missing)}."
+            )
         self.out_dim = int(getattr(self.visual, "output_dim", getattr(self.clip_model, "embed_dim", 768)))
         self.prompt_dim = int(self.visual.positional_embedding.shape[-1])
+
+    @staticmethod
+    def _transformer_uses_batch_first(transformer: nn.Module) -> bool:
+        batch_first = getattr(transformer, "batch_first", None)
+        if batch_first is not None:
+            return bool(batch_first)
+        blocks = getattr(transformer, "resblocks", None)
+        if blocks:
+            attn = getattr(blocks[0], "attn", None)
+            attn_batch_first = getattr(attn, "batch_first", None)
+            if attn_batch_first is not None:
+                return bool(attn_batch_first)
+        return True
+
+    def _forward_transformer(self, z: torch.Tensor) -> torch.Tensor:
+        transformer = self.visual.transformer
+        if self._transformer_uses_batch_first(transformer):
+            return transformer(z)
+        return transformer(z.permute(1, 0, 2)).permute(1, 0, 2)
+
+    def _pool_visual_tokens(self, z: torch.Tensor) -> torch.Tensor:
+        visual = self.visual
+        pool = getattr(visual, "_pool", None)
+        if callable(pool):
+            pooled, _tokens = pool(z)
+            return pooled
+
+        global_pool = getattr(visual, "_global_pool", None)
+        if callable(global_pool):
+            if bool(getattr(visual, "final_ln_after_pool", False)):
+                pooled, _tokens = global_pool(z)
+                return visual.ln_post(pooled)
+            z = visual.ln_post(z)
+            pooled, _tokens = global_pool(z)
+            return pooled
+
+        return visual.ln_post(z[:, 0, :])
 
     def forward(self, x: torch.Tensor, prompt_tokens: torch.Tensor | None = None) -> torch.Tensor:
         if x.ndim != 4:
@@ -99,12 +140,14 @@ class PromptedOpenCLIPVisionEncoder(nn.Module):
         else:
             cls = cls.expand(z.shape[0], -1, -1)
         z = torch.cat([cls, z], dim=1)
-        z = z + visual.positional_embedding.to(dtype=dtype)
+        z = z + visual.positional_embedding.to(device=z.device, dtype=dtype)
         z = _insert_prompt_tokens(z, prompt_tokens, 1)
-        z = visual.patch_dropout(z)
+        patch_dropout = getattr(visual, "patch_dropout", None)
+        if patch_dropout is not None:
+            z = patch_dropout(z)
         z = visual.ln_pre(z)
-        z = visual.transformer(z)
-        pooled, _tokens = visual._pool(z)
+        z = self._forward_transformer(z)
+        pooled = self._pool_visual_tokens(z)
         if visual.proj is not None:
             pooled = visual.proj(pooled) if isinstance(visual.proj, nn.Linear) else pooled @ visual.proj
         return pooled

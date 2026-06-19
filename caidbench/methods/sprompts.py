@@ -462,7 +462,10 @@ class SPromptsMethod(ContinualMethod):
         tokenized = learner.tokenized_prompts.to(prompts.device)
         cast_dtype = clip_model.transformer.get_cast_dtype()
         z = prompts.to(cast_dtype) + clip_model.positional_embedding.to(device=prompts.device, dtype=cast_dtype)
-        z = clip_model.transformer(z, attn_mask=clip_model.attn_mask)
+        if PromptedOpenCLIPVisionEncoder._transformer_uses_batch_first(clip_model.transformer):
+            z = clip_model.transformer(z, attn_mask=clip_model.attn_mask)
+        else:
+            z = clip_model.transformer(z.permute(1, 0, 2), attn_mask=clip_model.attn_mask).permute(1, 0, 2)
         z = clip_model.ln_final(z)
         z = text_global_pool(z, tokenized, clip_model.text_pool_type, getattr(clip_model, "text_eos_id", None))
         if clip_model.text_projection is not None:

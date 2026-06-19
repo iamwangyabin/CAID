@@ -473,6 +473,8 @@ class SPromptsMethod(ContinualMethod):
             z = text_global_pool(z, tokenized, clip_model.text_pool_type, eos_token_id=getattr(clip_model, "text_eos_id", None))
         else:
             z = text_global_pool(z, tokenized, clip_model.text_pool_type)
+        if isinstance(z, tuple):
+            z = z[0]
         if clip_model.text_projection is not None:
             z = clip_model.text_projection(z) if isinstance(clip_model.text_projection, nn.Linear) else z @ clip_model.text_projection
         return z

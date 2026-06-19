@@ -98,7 +98,7 @@ def test_text_prompt_encoder_supports_sequence_first_transformer(monkeypatch) ->
         pool_type: str,
     ) -> torch.Tensor:
         assert x.shape == (2, 77, 8)
-        return x[torch.arange(x.shape[0]), tokenized.argmax(dim=-1)]
+        return x[torch.arange(x.shape[0]), tokenized.argmax(dim=-1)], x
 
     transformer_stub.text_global_pool = text_global_pool
     monkeypatch.setitem(sys.modules, "open_clip.transformer", transformer_stub)

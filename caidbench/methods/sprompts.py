@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import time
 from typing import Any, Sequence
 
@@ -467,7 +468,11 @@ class SPromptsMethod(ContinualMethod):
         else:
             z = clip_model.transformer(z.permute(1, 0, 2), attn_mask=clip_model.attn_mask).permute(1, 0, 2)
         z = clip_model.ln_final(z)
-        z = text_global_pool(z, tokenized, clip_model.text_pool_type, getattr(clip_model, "text_eos_id", None))
+        pool_params = inspect.signature(text_global_pool).parameters
+        if "eos_token_id" in pool_params:
+            z = text_global_pool(z, tokenized, clip_model.text_pool_type, eos_token_id=getattr(clip_model, "text_eos_id", None))
+        else:
+            z = text_global_pool(z, tokenized, clip_model.text_pool_type)
         if clip_model.text_projection is not None:
             z = clip_model.text_projection(z) if isinstance(clip_model.text_projection, nn.Linear) else z @ clip_model.text_projection
         return z

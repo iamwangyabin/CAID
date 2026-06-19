@@ -96,7 +96,6 @@ def test_text_prompt_encoder_supports_sequence_first_transformer(monkeypatch) ->
         x: torch.Tensor,
         tokenized: torch.Tensor,
         pool_type: str,
-        text_eos_id: int | None = None,
     ) -> torch.Tensor:
         assert x.shape == (2, 77, 8)
         return x[torch.arange(x.shape[0]), tokenized.argmax(dim=-1)]

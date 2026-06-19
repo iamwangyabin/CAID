@@ -152,6 +152,7 @@ class Trainer:
         self.grad_clip = train_cfg.get("grad_clip")
         self.grad_clip = None if self.grad_clip is None else float(self.grad_clip)
         self.optimizer_cfg = dict(train_cfg.get("optimizer", {"type": "adamw", "lr": 1e-4}))
+        self.lr_scheduler_cfg = train_cfg.get("lr_scheduler", "cosine")
         self.ddp_find_unused_parameters = bool(distributed_cfg.get("find_unused_parameters", True))
         self._ddp_observer: DistributedDataParallel | None = None
         self.metric_matrix = ContinualMetricMatrix([t.name for t in self.scenario.tasks])
@@ -186,6 +187,14 @@ class Trainer:
 
     def make_optimizer(self, params: Iterable[torch.nn.Parameter] | None = None) -> torch.optim.Optimizer:
         return build_optimizer(self.method.parameters() if params is None else params, self.optimizer_cfg)
+
+    def make_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler | None:
+        name = str(self.lr_scheduler_cfg).lower() if self.lr_scheduler_cfg is not None else "none"
+        if name in {"none", "fixed", "constant"}:
+            return None
+        if name != "cosine":
+            raise ValueError(f"Unsupported train.lr_scheduler={self.lr_scheduler_cfg!r}; use 'cosine' or 'none'.")
+        return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(self.max_epochs, 1))
 
     def dataloader(
         self,
@@ -379,6 +388,7 @@ class Trainer:
     def default_train_loop(self, method, task: TaskSpec, train_loader, optimizer: torch.optim.Optimizer | None = None) -> None:
         method.train()
         optimizer = optimizer or method.configure_optimizer(self.optimizer_cfg)
+        scheduler = self.make_scheduler(optimizer)
         num_batches = self.effective_train_batches(train_loader)
         for epoch in range(self.max_epochs):
             self.set_loader_epoch(train_loader, epoch)
@@ -425,6 +435,8 @@ class Trainer:
                     num_batches=num_batches,
                     started_at=epoch_started_at,
                 )
+            if scheduler is not None:
+                scheduler.step()
 
     def advance_step(self, n: int = 1) -> None:
         self.global_step += int(n)

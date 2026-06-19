@@ -2,5 +2,38 @@ _base_: base.yaml
 
 output_dir: outputs/caidbench/finetune
 
+scenario:
+  transform:
+    train:
+      trsf:
+        - _target_: caidbench.data.transforms.RandomResizedCrop
+          size: 224
+        - _target_: caidbench.data.transforms.RandomHorizontalFlip
+          p: 0.5
+        - _target_: caidbench.data.transforms.ToTensor
+        - _target_: caidbench.data.transforms.Normalize
+          mean: [0.48145466, 0.4578275, 0.40821073]
+          std: [0.26862954, 0.26130258, 0.27577711]
+    test:
+      trsf:
+        - _target_: caidbench.data.transforms.Resize
+          size: 256
+          interpolation: bicubic
+        - _target_: caidbench.data.transforms.CenterCrop
+          size: 224
+        - _target_: caidbench.data.transforms.ToTensor
+        - _target_: caidbench.data.transforms.Normalize
+          mean: [0.48145466, 0.4578275, 0.40821073]
+          std: [0.26862954, 0.26130258, 0.27577711]
+
 method:
   name: finetune
+  detector_cfg:
+    backbone:
+      type: clip_vision
+      backend: open_clip
+      model_name: ViT-L-14
+      pretrained: openai
+      freeze: true
+      out_dim: 768
+      normalize: true

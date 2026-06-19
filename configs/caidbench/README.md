@@ -1,7 +1,9 @@
 # CAIDBench Configs
 
 These configs are complete experiment entry points for the generated CAIDBench
-continual protocols. Use them with `caid-train --config ...`.
+continual protocols. From a cloned repository, use them with
+`python train.py --config ...`. If the package is installed, the equivalent
+console command is `caid-train --config ...`.
 
 ## CAIDBench Default Protocol
 
@@ -15,13 +17,13 @@ run:
 Example:
 
 ```bash
-caid-train --config configs/caidbench/finetune.yaml
+python train.py --config configs/caidbench/finetune.yaml
 ```
 
 For local smoke runs without SwanLab:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override logging.backend=none
 ```
@@ -36,7 +38,7 @@ per-task checkpoint files.
 Resume from the last completed task with:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override resume_from=/path/to/run/last.pt logging.backend=none
 ```
@@ -44,7 +46,7 @@ caid-train \
 For a quick debug pass where each epoch only consumes a few train batches:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override logging.backend=none train.epochs=1 train.debug_max_steps_per_epoch=2 eval.max_batches_per_task=2
 ```
@@ -53,7 +55,7 @@ The CAIDBench configs default to the lab-server Arrow package at
 `/home/home/yabin/CAIDBench`. For a quick server smoke run, use:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override \
     logging.backend=none \
@@ -109,7 +111,7 @@ tasks only. Future-task results from `eval.scope=all` are reported separately as
 For future-task generalization, run a full matrix:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override eval.scope=all
 ```
@@ -117,7 +119,7 @@ caid-train \
 For a full matrix smoke run with bounded evaluation cost:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override \
     logging.backend=none \
@@ -142,7 +144,7 @@ If the CAIDBench Arrow dataset is stored somewhere else, override only the data
 root:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override scenario.data.path=/path/to/caidbench_arrow_root
 ```
@@ -150,7 +152,7 @@ caid-train \
 To run the model-appearance order instead of the default order:
 
 ```bash
-caid-train \
+python train.py \
   --config configs/caidbench/finetune.yaml \
   --override scenario.protocol=protocols/caidbench/model_appearance_order_protocol.yaml
 ```

@@ -12,6 +12,13 @@ cd CAID
 pip install -e .
 ```
 
+Editable installation is optional for training. You can also run from a cloned
+repository without installing the package:
+
+```bash
+python train.py --config configs/caidbench/finetune.yaml
+```
+
 Optional extras:
 
 ```bash
@@ -36,13 +43,13 @@ caid-pack-dataset \
 Train a method:
 
 ```bash
-caid-train --config configs/reproduce/dfil.yaml
+python train.py --config configs/reproduce/dfil.yaml
 ```
 
 Run the generated CAIDBench continual protocol:
 
 ```bash
-caid-train --config configs/caidbench/finetune.yaml
+python train.py --config configs/caidbench/finetune.yaml
 ```
 
 Protocol files only define task order and filters. Dataset paths live in

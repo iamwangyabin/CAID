@@ -1,0 +1,15 @@
+.git/
+.pytest_cache/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+outputs/
+data/
+.cache/
+
+*.ckpt
+*.pt
+*.pth
+*.safetensors

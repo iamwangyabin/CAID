@@ -33,7 +33,7 @@ method:
   n_ctx: 16
   backbone:
     type: open_clip
-    model_name: ViT-B-16-quickgelu
+    model_name: ViT-B-16
     pretrained: openai
   train_backbone: false
   normalize_features: true

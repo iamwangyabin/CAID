@@ -112,8 +112,14 @@ def broadcast_module_state(module: torch.nn.Module, src: int = 0) -> None:
         return
     with torch.no_grad():
         for tensor in module.state_dict().values():
-            if torch.is_tensor(tensor):
+            if not torch.is_tensor(tensor):
+                continue
+            if tensor.is_contiguous():
                 dist.broadcast(tensor, src=src)
+                continue
+            payload = tensor.contiguous()
+            dist.broadcast(payload, src=src)
+            tensor.copy_(payload)
 
 
 def barrier() -> None:

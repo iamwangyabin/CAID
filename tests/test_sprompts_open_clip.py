@@ -109,3 +109,60 @@ def test_text_prompt_encoder_supports_sequence_first_transformer(monkeypatch) ->
     out = method._encode_text_prompts(_TextLearner())
 
     assert out.shape == (2, 4)
+
+
+class _CountingEncoder(nn.Module):
+    out_dim = 3
+    prompt_dim = 3
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen = 0
+
+    def forward(self, x: torch.Tensor, prompt_tokens: torch.Tensor | None = None) -> torch.Tensor:
+        self.seen += int(x.shape[0])
+        values = torch.arange(self.seen - int(x.shape[0]), self.seen, dtype=torch.float32)
+        return values[:, None].expand(-1, self.out_dim)
+
+
+class _BatchLoader:
+    def __init__(self, batch_sizes: list[int]) -> None:
+        self.batch_sizes = batch_sizes
+
+    def __iter__(self):
+        for size in self.batch_sizes:
+            yield {"x": torch.zeros(size, 3, 2, 2)}
+
+    def __len__(self) -> int:
+        return len(self.batch_sizes)
+
+
+def test_center_max_samples_limits_after_task_feature_collection(monkeypatch) -> None:
+    method = SPromptsMethod.__new__(SPromptsMethod)
+    nn.Module.__init__(method)
+    method.image_encoder = _CountingEncoder()
+    method.feature_dim = 3
+    method.normalize_features = False
+    method.num_centers = 2
+    method.random_state = 0
+    method.current_task_id = 0
+    method.current_prompt_key = "task0"
+    method.center_max_samples = 5
+    method.prompt_pool = nn.ParameterDict({"task0": nn.Parameter(torch.zeros(1, 3))})
+    method.classifier_pool = nn.ModuleDict()
+    method.text_prompt_pool = nn.ModuleDict()
+    method.train_backbone = False
+
+    clustered: dict[str, int] = {}
+
+    def cluster_features(features: torch.Tensor) -> torch.Tensor:
+        clustered["samples"] = int(features.shape[0])
+        return torch.zeros(2, method.feature_dim)
+
+    monkeypatch.setattr(method, "_cluster_features", cluster_features)
+    monkeypatch.setattr(method, "_log_stage", lambda *args, **kwargs: None)
+
+    method.after_task(types.SimpleNamespace(name="task0", task_id=0), _BatchLoader([4, 4, 4]))
+
+    assert method.image_encoder.seen == 5
+    assert clustered["samples"] == 5

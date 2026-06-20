@@ -217,6 +217,7 @@ class SPromptsMethod(ContinualMethod):
         label_mode: str = "auto",
         routing_metric: str = "official_l1",
         use_official_schedule: bool = False,
+        center_max_samples: int | None = None,
         init_epoch: int | None = None,
         init_lr: float | None = None,
         init_milestones: Sequence[int] | None = None,
@@ -251,6 +252,7 @@ class SPromptsMethod(ContinualMethod):
         self.label_mode = str(label_mode).lower()
         self.routing_metric = str(routing_metric).lower()
         self.use_official_schedule = bool(use_official_schedule)
+        self.center_max_samples = self._parse_optional_positive_int(center_max_samples)
         self.init_epoch = init_epoch
         self.init_lr = init_lr
         self.init_milestones = self._parse_milestones(init_milestones)
@@ -300,6 +302,26 @@ class SPromptsMethod(ContinualMethod):
         if milestones is None:
             return []
         return [int(milestone) for milestone in milestones]
+
+    @staticmethod
+    def _parse_optional_positive_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and value.strip().lower() in {"", "none", "null", "false"}:
+            return None
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+
+    def _local_center_max_samples(self) -> int | None:
+        if self.center_max_samples is None:
+            return None
+        try:
+            import torch.distributed as dist
+
+            world_size = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
+        except Exception:
+            world_size = 1
+        return max((int(self.center_max_samples) + int(world_size) - 1) // int(world_size), 1)
 
     def _checkpoint_excluded_prefixes(self) -> tuple[str, ...]:
         return ("image_encoder.",) if not self.train_backbone else ()
@@ -616,11 +638,25 @@ class SPromptsMethod(ContinualMethod):
             f"after_task start task={format_log_value(task_label)} task_index={self.current_task_id} stage=extract_features"
         )
         features = []
+        local_max_samples = self._local_center_max_samples()
+        local_seen = 0
         for batch_idx, batch in iter_limited_train_batches(self, train_loader):
             x = batch["x"].to(self.device)
+            if local_max_samples is not None:
+                remaining = local_max_samples - local_seen
+                if remaining <= 0:
+                    break
+                x = x[:remaining]
+            if x.shape[0] == 0:
+                break
             features.append(self.image_encoder(x, None).detach().cpu())
-            if batch_idx == 1 or batch_idx == total_batches or batch_idx % 50 == 0:
+            local_seen += int(x.shape[0])
+            if batch_idx == 1 or batch_idx == total_batches or batch_idx % 50 == 0 or (
+                local_max_samples is not None and local_seen >= local_max_samples
+            ):
                 self._log_stage(f"after_task extracting_features progress={batch_idx}/{total_batches} task_index={self.current_task_id}")
+            if local_max_samples is not None and local_seen >= local_max_samples:
+                break
         self._log_stage(f"after_task feature_collection_done task_index={self.current_task_id} stage=cluster")
         local_features = torch.cat(features, dim=0) if features else torch.empty(0, self.feature_dim)
         gathered_features = all_gather_object(local_features)

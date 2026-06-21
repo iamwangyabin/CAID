@@ -1,0 +1,306 @@
+# CAID-50 long-horizon continual protocol.
+# 50-generator CAIDBenchmark continual order.
+# Derived from model_appearance_order_protocol.yaml by keeping only generators
+# with 2000 test images and removing selected near-duplicate/control variants.
+index_path: continual_index.parquet
+tasks:
+  - id: progan
+    name: "ProGAN"
+    numeric_id: 0
+    filter:
+      include:
+        task_id: 0
+  - id: deepfakes
+    name: "DeepFakes"
+    numeric_id: 1
+    filter:
+      include:
+        task_id: 38
+  - id: biggan
+    name: "BigGAN"
+    numeric_id: 2
+    filter:
+      include:
+        task_id: 85
+  - id: pluralistic
+    name: "Pluralistic"
+    numeric_id: 3
+    filter:
+      include:
+        task_id: 48
+  - id: maskgan
+    name: "MaskGAN"
+    numeric_id: 4
+    filter:
+      include:
+        task_id: 46
+  - id: fsgan
+    name: "FSGAN"
+    numeric_id: 5
+    filter:
+      include:
+        task_id: 31
+  - id: stylegan2
+    name: "StyleGAN2"
+    numeric_id: 6
+    filter:
+      include:
+        task_id: 33
+  - id: stargan2
+    name: "StarGAN2"
+    numeric_id: 7
+    filter:
+      include:
+        task_id: 58
+  - id: faceshifter
+    name: "FaceShifter"
+    numeric_id: 8
+    filter:
+      include:
+        task_id: 41
+  - id: atvg_net
+    name: "ATVG-Net"
+    numeric_id: 9
+    filter:
+      include:
+        task_id: 36
+  - id: fomm
+    name: "FOMM"
+    numeric_id: 10
+    filter:
+      include:
+        task_id: 30
+  - id: discofacegan
+    name: "DiscoFaceGAN"
+    numeric_id: 11
+    filter:
+      include:
+        task_id: 39
+  - id: ddim
+    name: "DDIM"
+    numeric_id: 12
+    filter:
+      include:
+        task_id: 21
+  - id: vqgan
+    name: "VQGAN"
+    numeric_id: 13
+    filter:
+      include:
+        task_id: 27
+  - id: mmreplacement
+    name: "MMreplacement"
+    numeric_id: 14
+    filter:
+      include:
+        task_id: 5
+  - id: sbs
+    name: "SBS"
+    numeric_id: 15
+    filter:
+      include:
+        task_id: 28
+  - id: blendface
+    name: "BlendFace"
+    numeric_id: 16
+    filter:
+      include:
+        task_id: 29
+  - id: adm
+    name: "ADM"
+    numeric_id: 17
+    filter:
+      include:
+        task_id: 35
+  - id: stylegan3
+    name: "StyleGAN3"
+    numeric_id: 18
+    filter:
+      include:
+        task_id: 24
+  - id: lama
+    name: "LaMa"
+    numeric_id: 19
+    filter:
+      include:
+        task_id: 45
+  - id: vqdm
+    name: "VQDM"
+    numeric_id: 20
+    filter:
+      include:
+        task_id: 59
+  - id: glide
+    name: "GLIDE"
+    numeric_id: 21
+    filter:
+      include:
+        task_id: 42
+  - id: ldm
+    name: "LDM"
+    numeric_id: 22
+    filter:
+      include:
+        task_id: 3
+  - id: repaint_p2
+    name: "RePaint-P2"
+    numeric_id: 24
+    filter:
+      include:
+        task_id: 51
+  - id: styleganxl
+    name: "StyleGANXL"
+    numeric_id: 25
+    filter:
+      include:
+        task_id: 25
+  - id: wukong
+    name: "Wukong"
+    numeric_id: 26
+    filter:
+      include:
+        task_id: 60
+  - id: sd1_5
+    name: "SD1.5"
+    numeric_id: 28
+    filter:
+      include:
+        task_id: 53
+  - id: sd2_1
+    name: "SD2.1"
+    numeric_id: 29
+    filter:
+      include:
+        task_id: 55
+  - id: dit
+    name: "DiT"
+    numeric_id: 30
+    filter:
+      include:
+        task_id: 22
+  - id: midjourney_v5
+    name: "Midjourney v5"
+    numeric_id: 32
+    filter:
+      include:
+        task_id: 47
+  - id: sdxl_base
+    name: "SDXL-base"
+    numeric_id: 34
+    filter:
+      include:
+        task_id: 57
+  - id: sd1_5_dreamshaper
+    name: "SD1.5 DreamShaper"
+    numeric_id: 35
+    filter:
+      include:
+        task_id: 54
+  - id: rddm
+    name: "RDDM"
+    numeric_id: 38
+    filter:
+      include:
+        task_id: 10
+  - id: pixart_alpha
+    name: "PixArt-alpha"
+    numeric_id: 41
+    filter:
+      include:
+        task_id: 7
+  - id: kandinsky_3
+    name: "Kandinsky-3"
+    numeric_id: 44
+    filter:
+      include:
+        task_id: 2
+  - id: playground
+    name: "Playground"
+    numeric_id: 47
+    filter:
+      include:
+        task_id: 9
+  - id: pony
+    name: "Pony"
+    numeric_id: 49
+    filter:
+      include:
+        task_id: 86
+  - id: sit
+    name: "SiT"
+    numeric_id: 51
+    filter:
+      include:
+        task_id: 23
+  - id: pixart_sigma
+    name: "PixArt-sigma"
+    numeric_id: 54
+    filter:
+      include:
+        task_id: 8
+  - id: lavi_bridge
+    name: "LaVi-Bridge"
+    numeric_id: 55
+    filter:
+      include:
+        task_id: 4
+  - id: flux_1
+    name: "FLUX.1"
+    numeric_id: 61
+    filter:
+      include:
+        task_id: 40
+  - id: illustrious
+    name: "Illustrious"
+    numeric_id: 63
+    filter:
+      include:
+        task_id: 32
+  - id: janus
+    name: "Janus"
+    numeric_id: 67
+    filter:
+      include:
+        task_id: 1
+  - id: sd3_5
+    name: "SD3.5"
+    numeric_id: 68
+    filter:
+      include:
+        task_id: 56
+  - id: infinity
+    name: "infinity"
+    numeric_id: 71
+    filter:
+      include:
+        task_id: 19
+  - id: gpt_image_1
+    name: "GPT-Image-1"
+    numeric_id: 77
+    filter:
+      include:
+        task_id: 43
+  - id: imagen_4
+    name: "Imagen-4"
+    numeric_id: 78
+    filter:
+      include:
+        task_id: 44
+  - id: qwen_image
+    name: "Qwen-Image"
+    numeric_id: 79
+    filter:
+      include:
+        task_id: 49
+  - id: chroma
+    name: "Chroma"
+    numeric_id: 82
+    filter:
+      include:
+        task_id: 37
+  - id: z_image
+    name: "Z-Image"
+    numeric_id: 85
+    filter:
+      include:
+        task_id: 81

@@ -17,6 +17,7 @@ index_path: continual_index.parquet
 
 `model_appearance_order_protocol.yaml` uses the same index but orders tasks by
 model appearance chronology. Select it by overriding `scenario.protocol`.
+`model_appearance_order_protocol_50.yaml` is the 50-task subset of that order.
 
 The dataset root lives in the runnable config:
 

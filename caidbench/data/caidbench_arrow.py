@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 import io
+import math
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,7 @@ from .transforms import build_transform
 
 
 _DEFAULT_SPLIT_FILES = {"train", "val", "test"}
+_DEFAULT_FACE_BBOX_FILENAME = "forgerynet_face_bboxes_all_generators.parquet"
 
 
 class _CorruptImageError(RuntimeError):
@@ -72,6 +74,7 @@ class LoadedCAIDBenchArrow:
     source_path_column: str
     split_column: str
     prefer_metadata: bool = False
+    face_bboxes: dict[tuple[str, int, int], tuple[float, float, float, float]] | None = None
 
 
 class CAIDBenchArrowImageDataset(Dataset):
@@ -140,7 +143,40 @@ class CAIDBenchArrowImageDataset(Dataset):
             return default
         return _arrow_scalar_to_py(batch.column(column)[row])
 
-    def _load_row(self, file_id: int, batch_index: int, batch_row: int) -> tuple[torch.Tensor, dict[str, Any]]:
+    def _crop_face_if_available(
+        self,
+        img: Image.Image,
+        *,
+        batch_index: int,
+        batch_row: int,
+        meta: Mapping[str, Any],
+    ) -> Image.Image:
+        if not self.loaded.face_bboxes:
+            return img
+        arrow_path = meta.get("arrow_path")
+        if arrow_path is None:
+            return img
+        bbox = self.loaded.face_bboxes.get((str(arrow_path), batch_index, batch_row))
+        if bbox is None:
+            return img
+        x1, y1, x2, y2 = bbox
+        if not all(math.isfinite(value) for value in (x1, y1, x2, y2)):
+            return img
+        left = max(0, int(math.floor(x1)))
+        top = max(0, int(math.floor(y1)))
+        right = min(img.width, int(math.ceil(x2)))
+        bottom = min(img.height, int(math.ceil(y2)))
+        if right <= left or bottom <= top:
+            return img
+        return img.crop((left, top, right, bottom))
+
+    def _load_row(
+        self,
+        file_id: int,
+        batch_index: int,
+        batch_row: int,
+        meta: Mapping[str, Any],
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         reader = self._reader(file_id)
         batch = reader.get_batch(batch_index)
         value = self._batch_value(batch, self.loaded.image_column, batch_row)
@@ -149,12 +185,24 @@ class CAIDBenchArrowImageDataset(Dataset):
         if isinstance(value, str):
             try:
                 with Image.open(value) as img:
+                    img = self._crop_face_if_available(
+                        img,
+                        batch_index=batch_index,
+                        batch_row=batch_row,
+                        meta=meta,
+                    )
                     x = self.transform(img)
             except (OSError, UnidentifiedImageError) as e:
                 raise _CorruptImageError(str(e)) from e
         elif isinstance(value, (bytes, bytearray, memoryview)):
             try:
                 with Image.open(io.BytesIO(bytes(value))) as img:
+                    img = self._crop_face_if_available(
+                        img,
+                        batch_index=batch_index,
+                        batch_row=batch_row,
+                        meta=meta,
+                    )
                     x = self.transform(img)
             except (OSError, UnidentifiedImageError) as e:
                 raise _CorruptImageError(str(e)) from e
@@ -213,7 +261,7 @@ class CAIDBenchArrowImageDataset(Dataset):
         batch_index = int(meta["_batch_index"])
         batch_row = int(meta["_batch_row"])
         try:
-            x, actual = self._load_row(file_id, batch_index, batch_row)
+            x, actual = self._load_row(file_id, batch_index, batch_row, meta)
         except _CorruptImageError as e:
             raise _CorruptImageError(f"{self._describe_meta(meta_pos, meta)}: {e}") from e
         tid = int(self.task_id if self.task_id is not None else meta.get("task_id", -1))
@@ -303,6 +351,7 @@ class CAIDBenchArrowDataSource:
         recursive = bool(cfg.get("recursive", False))
         require_splits = [str(x) for x in cfg.get("require_splits", [])]
         index_path = cfg.get("index_path", cfg.get("index"))
+        face_bboxes = cls._load_face_bboxes(root / _DEFAULT_FACE_BBOX_FILENAME)
 
         if index_path is not None:
             loaded = cls._load_index_metadata(
@@ -316,6 +365,7 @@ class CAIDBenchArrowDataSource:
                 split_column=split_column,
                 task_hint_mode=task_hint_mode,
                 domain_from=domain_from,
+                face_bboxes=face_bboxes,
             )
             return cls(loaded)
 
@@ -341,8 +391,30 @@ class CAIDBenchArrowDataSource:
             dataset_column=dataset_column,
             source_path_column=source_path_column,
             split_column=split_column,
+            face_bboxes=face_bboxes,
         )
         return cls(loaded)
+
+    @staticmethod
+    def _load_face_bboxes(path: Path) -> dict[tuple[str, int, int], tuple[float, float, float, float]] | None:
+        if not path.is_file():
+            return None
+        frame = pd.read_parquet(path)
+        required = {"arrow_path", "batch_id", "row_in_batch", "face_found", "x1", "y1", "x2", "y2"}
+        missing = sorted(required - set(frame.columns))
+        if missing:
+            raise ValueError(f"CAIDBench face bbox parquet is missing required columns: {missing}")
+        frame = frame[frame["face_found"].astype(bool)].copy()
+        if frame.empty:
+            return {}
+        frame = frame.dropna(subset=["arrow_path", "batch_id", "row_in_batch", "x1", "y1", "x2", "y2"])
+        bboxes: dict[tuple[str, int, int], tuple[float, float, float, float]] = {}
+        for row in frame.itertuples(index=False):
+            x1, y1, x2, y2 = float(row.x1), float(row.y1), float(row.x2), float(row.y2)
+            if not all(math.isfinite(value) for value in (x1, y1, x2, y2)):
+                continue
+            bboxes[(str(row.arrow_path), int(row.batch_id), int(row.row_in_batch))] = (x1, y1, x2, y2)
+        return bboxes
 
     @staticmethod
     def _discover_files(root: Path, recursive: bool = False, require_splits: list[str] | None = None) -> list[CAIDBenchArrowFile]:
@@ -449,6 +521,7 @@ class CAIDBenchArrowDataSource:
         split_column: str,
         task_hint_mode: str,
         domain_from: str,
+        face_bboxes: dict[tuple[str, int, int], tuple[float, float, float, float]] | None,
     ) -> LoadedCAIDBenchArrow:
         _require_pyarrow()
         import pyarrow.parquet as pq
@@ -515,6 +588,7 @@ class CAIDBenchArrowDataSource:
             source_path_column=source_path_column,
             split_column=split_column,
             prefer_metadata=True,
+            face_bboxes=face_bboxes,
         )
 
     def make_dataset(

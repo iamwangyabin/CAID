@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 import torch
+from PIL import Image
 
 from caidbench.data.caidbench_arrow import (
     CAIDBenchArrowDataSource,
+    CAIDBenchArrowFile,
     CAIDBenchArrowImageDataset,
     LoadedCAIDBenchArrow,
     _CorruptImageError,
@@ -23,11 +27,12 @@ def _loaded() -> LoadedCAIDBenchArrow:
             "split": ["train", "train"],
             "generator_name": ["Imagen-4", "Imagen-4"],
             "source_path": ["bad.png", "ok.png"],
+            "arrow_path": ["Imagen-4/train.arrow", "Imagen-4/train.arrow"],
             "arrow_file": ["Imagen-4/train.arrow", "Imagen-4/train.arrow"],
         }
     )
     return LoadedCAIDBenchArrow(
-        files=[],
+        files=[CAIDBenchArrowFile(path=Path("Imagen-4/train.arrow"), dir_name="Imagen-4", split_name="train")],
         metadata=metadata,
         image_column="image",
         label_column="label",
@@ -89,3 +94,19 @@ def test_caidbench_arrow_data_source_builds_image_dataset() -> None:
     dataset = source.make_dataset([0, 1])
 
     assert isinstance(dataset, CAIDBenchArrowImageDataset)
+
+
+def test_caidbench_arrow_dataset_crops_forgerynet_bbox_before_transform() -> None:
+    loaded = _loaded()
+    loaded.face_bboxes = {("Imagen-4/train.arrow", 3, 10): (1.2, 2.1, 5.8, 7.9)}
+    dataset = CAIDBenchArrowImageDataset(loaded, indices=[0])
+    image = Image.new("RGB", (10, 12))
+
+    cropped = dataset._crop_face_if_available(
+        image,
+        batch_index=3,
+        batch_row=10,
+        meta=loaded.metadata.iloc[0].to_dict(),
+    )
+
+    assert cropped.size == (5, 6)

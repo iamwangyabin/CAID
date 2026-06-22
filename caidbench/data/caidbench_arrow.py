@@ -88,16 +88,12 @@ class CAIDBenchArrowImageDataset(Dataset):
         transform_cfg: dict[str, Any] | None = None,
         task_id: int | None = None,
         task_name: str | None = None,
-        skip_corrupt: bool = False,
-        max_corrupt_retries: int = 16,
     ) -> None:
         self.loaded = loaded
         self.indices = [int(i) for i in indices]
         self.transform = build_transform(transform_cfg)
         self.task_id = task_id
         self.task_name = task_name
-        self.skip_corrupt = bool(skip_corrupt)
-        self.max_corrupt_retries = max(int(max_corrupt_retries), 1)
         self._reader_cache: dict[int, tuple[Any, Any]] = {}
 
     def __len__(self) -> int:
@@ -216,9 +212,30 @@ class CAIDBenchArrowImageDataset(Dataset):
         file_id = int(meta["_file_id"])
         batch_index = int(meta["_batch_index"])
         batch_row = int(meta["_batch_row"])
-        x, actual = self._load_row(file_id, batch_index, batch_row)
+        try:
+            x, actual = self._load_row(file_id, batch_index, batch_row)
+        except _CorruptImageError as e:
+            raise _CorruptImageError(f"{self._describe_meta(meta_pos, meta)}: {e}") from e
         tid = int(self.task_id if self.task_id is not None else meta.get("task_id", -1))
         return self._to_sample(meta_pos, meta, x, actual, tid)
+
+    def _describe_meta(self, meta_pos: int, meta: Mapping[str, Any] | None = None) -> str:
+        if meta is None:
+            try:
+                meta = self.loaded.metadata.iloc[int(meta_pos)].to_dict()
+            except Exception:
+                meta = {}
+        parts = [f"meta_pos={meta_pos}"]
+        for key in ("source_path", "path", "arrow_file", "generator_name", "split"):
+            value = meta.get(key)
+            if value is None:
+                continue
+            text = str(value)
+            if text:
+                parts.append(f"{key}={text}")
+        if "_batch_index" in meta and "_batch_row" in meta:
+            parts.append(f"batch={meta['_batch_index']} row={meta['_batch_row']}")
+        return " ".join(parts)
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         dataset_len = len(self.indices)
@@ -229,21 +246,24 @@ class CAIDBenchArrowImageDataset(Dataset):
         if idx < 0 or idx >= dataset_len:
             raise IndexError(idx)
 
-        retries = min(self.max_corrupt_retries, dataset_len)
-        for step in range(retries):
-            sample_idx = (idx + step) % dataset_len
+        last_error: _CorruptImageError | None = None
+        for offset in range(dataset_len):
+            sample_idx = (idx + offset) % dataset_len
             meta_pos = self.indices[sample_idx]
             try:
                 return self._load_sample(meta_pos)
             except _CorruptImageError as e:
-                if not self.skip_corrupt or step == retries - 1:
-                    raise
+                last_error = e
+                location = self._describe_meta(meta_pos)
                 warnings.warn(
-                    f"Skipping corrupted sample idx={sample_idx} (source_path={meta_pos}): {e.__class__.__name__}: {e}"
+                    f"Skipping corrupted sample idx={sample_idx} ({location}): "
+                    f"{e.__class__.__name__}: {e}"
                 )
                 continue
 
-        raise RuntimeError(f"Failed to load a valid sample after {retries} retries from idx={idx}")
+        raise RuntimeError(
+            f"No valid sample found after skipping {dataset_len} corrupt candidate(s) from idx={idx}"
+        ) from last_error
 
 
 class CAIDBenchArrowDataSource:
@@ -253,11 +273,9 @@ class CAIDBenchArrowDataSource:
     `image`, `label`, `generator_name`, `source_dataset`, `source_path`, `split`.
     """
 
-    def __init__(self, loaded: LoadedCAIDBenchArrow, skip_corrupt: bool = False, max_corrupt_retries: int = 16) -> None:
+    def __init__(self, loaded: LoadedCAIDBenchArrow) -> None:
         self.loaded = loaded
         self.metadata = loaded.metadata
-        self.skip_corrupt = bool(skip_corrupt)
-        self.max_corrupt_retries = max(int(max_corrupt_retries), 1)
         self._split_task_indices: dict[tuple[str, str], list[int]] = {
             (str(task_hint), str(split)): [int(i) for i in group.index.tolist()]
             for (task_hint, split), group in self.metadata.groupby(["task_hint", "split"], sort=False)
@@ -284,8 +302,6 @@ class CAIDBenchArrowDataSource:
         domain_from = str(cfg.get("domain_from", "dir_name"))
         recursive = bool(cfg.get("recursive", False))
         require_splits = [str(x) for x in cfg.get("require_splits", [])]
-        skip_corrupt = bool(cfg.get("skip_corrupt", False))
-        max_corrupt_retries = int(cfg.get("max_corrupt_retries", 16))
         index_path = cfg.get("index_path", cfg.get("index"))
 
         if index_path is not None:
@@ -301,7 +317,7 @@ class CAIDBenchArrowDataSource:
                 task_hint_mode=task_hint_mode,
                 domain_from=domain_from,
             )
-            return cls(loaded, skip_corrupt=skip_corrupt, max_corrupt_retries=max_corrupt_retries)
+            return cls(loaded)
 
         files = cls._discover_files(root, recursive=recursive, require_splits=require_splits)
         if not files:
@@ -326,7 +342,7 @@ class CAIDBenchArrowDataSource:
             source_path_column=source_path_column,
             split_column=split_column,
         )
-        return cls(loaded, skip_corrupt=skip_corrupt, max_corrupt_retries=max_corrupt_retries)
+        return cls(loaded)
 
     @staticmethod
     def _discover_files(root: Path, recursive: bool = False, require_splits: list[str] | None = None) -> list[CAIDBenchArrowFile]:
@@ -514,8 +530,6 @@ class CAIDBenchArrowDataSource:
             transform_cfg=transform_cfg,
             task_id=task_id,
             task_name=task_name,
-            skip_corrupt=self.skip_corrupt,
-            max_corrupt_retries=self.max_corrupt_retries,
         )
 
     def select_indices(self, spec: Mapping[str, Any] | None) -> list[int] | None:

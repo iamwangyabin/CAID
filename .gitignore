@@ -33,3 +33,22 @@ outputs/
 *.log
 .coverage*
 htmlcov/
+
+# Generated documents and LaTeX build artifacts
+*.pdf
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+*.xdv
